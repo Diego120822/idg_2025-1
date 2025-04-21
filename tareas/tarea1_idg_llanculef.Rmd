@@ -1,43 +1,125 @@
 ---
-title: "Análisis Ingreso CASEN" 
-author: "Diego LLanculef" 
+title: "Análisis de Ingresos CASEN 2022"
+author: "Diego Llanculef"
 date: "`r Sys.Date()`"
 output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
 ---
 
 # Introducción
+El presente análisis busca evaluar la influencia de factores como el nivel educacional, la ocupación, la edad y el sexo sobre el ingreso per cápita en la Región Metropolitana, utilizando datos de la Encuesta CASEN 2022. Para ello, se aplicó un modelo de regresión lineal múltiple tras un proceso de limpieza y exploración de datos. Este modelo permite identificar qué variables tienen un efecto significativo en la variación del ingreso, aportando evidencia útil para el diseño de políticas públicas orientadas a la equidad social y económica.
 
-Este documento presenta un **análisis descriptivo** de Ingreso total del hogar, utilizando los datos de CASEN 2022
+**Hipótesis:** El nivel educacional y la ocupación de las personas son factores significativos para explicar las diferencias en el ingreso per cápita.
 
-## Procesamiento de datos
-
-Se cargaran las librerias necesarias
+install.packages("tidyverse")
+install.packages("corrplot")
 
 ```{r librerias, message=FALSE, warning=FALSE}
+# Librerias
 library(tidyverse)
+library(corrplot)
+library(haven)
 ```
-
-Luego, cargamos el dataset de la CASEN en la RM
-
-```{r}
-ruta_rds = "../data/casen_rm.rds"
+# Carga de Datos
+```{r datos, message=FALSE, warning=FALSE}
+ruta_rds = "../data/casen_rm.rds" # "../" permite retroceder carpeta
 casen_rm = readRDS(ruta_rds)
 ```
+# Limpieza de Datos
+```{r limpieza_datos, message=FALSE, warning=FALSE}
+# Reducción del umbral
+umbral = quantile(casen_rm$ypc, 0.9, na.rm = TRUE)
+filtro = casen_rm[casen_rm$ypc <= umbral & (casen_rm$edad >= 18) & (casen_rm$edad <= 65), ]
 
-### Análisis Exploratorio
+# Para evitar problemas con valores perdidos
+filtro <- filtro %>%
+  filter(!is.na(ypc), !is.na(edad), !is.na(sexo), !is.na(e6a), !is.na(o1))
 
-Veamos un resumen del Ingreso
+# Histograma y boxplot luego de filtrar el ypc
+hist(filtro$ypc, xlab = "Ingreso percapita", col = "green")
+boxplot(filtro$ypc)
+``` 
+# Selección de variable
+```{r seleccionar_variables, message=FALSE, warning=FALSE}
+# Se seleccionan las variables claves para el estudio
+# variable dependiente: Ingreso per cápita 
+# Variables independientes: Edad, Sexo, Nivel Educacional, Ocupación 
+datos <- casen_rm %>% select(ypc, edad, sexo, e6a, ocupacion = o1)
 
-```{r}
-summary(casen_rm$ypc)
+# En vez de usar las variables categoricas, es ideal convertirlas en factores para una mejor interpretación en el modelo
+filtro$sexo <- as_factor(filtro$sexo) 
+filtro$e6a <- as_factor(filtro$e6a) 
+filtro$o1 <- as_factor(filtro$o1)
 ```
+# Análisis Exploratorio
+```{r análisis_exploratorio, message=FALSE, warning=FALSE}
+#Para conocer la distribución de valores de cada variable se aplicaran histogramas, con el fin de determinar si estas presentan un comportamiento normal.
+ 
+#Histograma y boxplot de YPC
+hist(datos$ypc, xlab = "Ingreso percapita", col = "red")
+boxplot(datos$ypc)
 
-El promedio de Ingreso para este dataset es de `r mean(casen_rm$ypc, na.rm=TRUE)` .
+# Histograma y bloxplot de Edad
+hist(datos$edad, xlab = "Edad", col = "green")
+boxplot(datos$edad)
 
-Para visualizar mejor, hacemos un histograma
+# Histograma y bloxplot de Sexo
+hist(datos$sexo, xlab = "Sexo", col = "blue")
+boxplot(datos$sexo)
 
-```{r echo=FALSE}
-hist(casen_rm$ypc,
-     xlab = "Ingreso Per Cápíta",
-     col = "lightblue")
+# Histograma y bloxplot de Nivel educacional
+hist(datos$e6a, xlab = "Nivel educacional", col = "green")
+boxplot(datos$e6a)
+
+# Histograma y bloxplot de Ocupación
+datos$ocupacion <- as_factor(datos$ocupacion)
+# Tabla de frecuencias
+tabla_ocupacion <- table(datos$ocupacion)
+print(tabla_ocupacion)
+# Gráfico de barras
+barplot(tabla_ocupacion,
+        las = 2,             # gira las etiquetas
+        col = "red",
+        xlab = "Ocupación",
+        ylab = "Frecuencia",
+        main = "Distribución de Ocupaciones")
+
+barplot(table(datos$ocupacion))
+barplot(table(datos$sexo))
+#Como varia el ingreso segun la ocupación
+boxplot(ypc ~ ocupacion, data = datos, col = "lightblue",
+        xlab = "Ocupación", ylab = "Ingreso per cápita", las = 2)
 ```
+# Correlación
+```{r corr, message=FALSE, warning=FALSE}
+# Se realiza la matriz de correlación solo entre ypc y edad
+tabla_cor <- filtro %>% select(ypc, edad)
+correlacion <- cor(tabla_cor, use = "complete.obs", method = "pearson")
+
+# Visualización
+corrplot(correlacion, method = "color", tl.cex = 0.8, number.cex = 0.7)
+```
+# Modelo de Regresión multiple
+```{r modelo_regresión, message=FALSE, warning=FALSE}
+modelo <- lm(ypc ~ edad + e6a + o1 + sexo, data = filtro)
+summary(modelo)
+```
+# Análisis de Resultados
+Los resultados del modelo de regresión muestran que la edad, el nivel educacional superior, la ocupación y el sexo tienen un efecto estadísticamente significativo sobre el ingreso per cápita, con p-valores menores a 0.05. Esto indica que estas variables influyen de manera real y no aleatoria en las diferencias de ingresos observadas entre las personas.
+En cuanto a la edad, se observa que por cada año adicional, el ingreso per cápita aumenta en promedio $3.280, manteniendo constantes las demás variables. Este efecto, aunque moderado, es altamente significativo, lo que sugiere que la experiencia laboral asociada a la edad puede estar siendo valorada en el mercado.
+Respecto a la educación, los niveles más altos presentan una relación positiva y significativa con el ingreso. Por ejemplo, quienes tienen estudios profesionales o de posgrado (magíster o doctorado) muestran ingresos considerablemente más altos, con incrementos promedio que superan los $300.000 y $400.000 en comparación con personas sin educación formal. En contraste, niveles educativos bajos como Prekínder/Kínder, Educación Básica o Primaria no presentan efectos estadísticamente significativos (p > 0.05), lo cual sugiere que estos niveles no representan una ventaja comparativa relevante en términos de ingreso.
+La ocupación resulta ser una variable crítica: las personas sin ocupación activa ganan en promedio $97.901 menos que quienes están ocupadas, y este efecto es altamente significativo (p < 0.001). Esto refleja la profunda desigualdad de ingresos entre quienes participan en el mercado laboral y quienes no.
+
+Finalmente, el sexo también muestra un efecto significativo: ser mujer se asocia con una reducción promedio de $14.263 en el ingreso per cápita, incluso después de controlar por edad, nivel educativo y ocupación. Este resultado evidencia una brecha de género persistente en los ingresos, lo que pone en relieve la necesidad de políticas que fomenten la equidad laboral entre hombres y mujeres.
+
+## Conclusiones
+El modelo de regresión lineal múltiple aplicado permite explicar de forma estadísticamente significativa una parte importante de la variabilidad en el ingreso per cápita de la población adulta en Chile, según los datos de la Encuesta CASEN 2022. Las variables incluidas en el modelo muestran asociaciones relevantes con el nivel de ingreso, lo que refuerza la validez del enfoque utilizado.
+Si bien el coeficiente de determinación ajustado (R² ajustado = 0.195) no es elevado, esto es esperable en el análisis de fenómenos sociales complejos como el ingreso, donde intervienen múltiples factores externos no contemplados en el modelo. Entre ellos, se pueden mencionar variables como la región de residencia, el tipo de contrato laboral, el número de horas trabajadas, la industria económica, entre otros.
+Aun con estas limitaciones, los resultados permiten identificar patrones valiosos: mayores niveles de escolaridad se asocian con ingresos significativamente más altos, las mujeres presentan menores ingresos en comparación con los hombres, y las personas sin ocupación activa también muestran un ingreso per cápita considerablemente inferior. Estos hallazgos entregan evidencia empírica útil para orientar políticas públicas focalizadas en mejorar la equidad económica, especialmente en ámbitos como la educación y el acceso al empleo formal.
+
+En este sentido, el modelo constituye una herramienta de análisis inicial que puede ser ampliada con la incorporación de otras variables relevantes, tales como pertenencia a pueblos originarios, situación de discapacidad, composición del hogar, zona urbana o rural, y región del país. La inclusión de estos factores permitiría mejorar la capacidad explicativa del modelo y entregar una visión más integral de las desigualdades de ingreso en Chile.
+
+El análisis muestra con claridad que invertir en educación, especialmente en niveles técnicos y profesionales, está fuertemente asociado a mayores niveles de ingreso. Además, variables como la participación laboral y el género siguen teniendo un peso considerable en la desigualdad de ingresos. Estos hallazgos subrayan la importancia de considerar factores estructurales en el diseño de políticas públicas enfocadas en el acceso equitativo al empleo y la educación de calidad, así como en la reducción de brechas de género en el mercado laboral.
+
