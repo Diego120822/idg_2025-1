@@ -1,0 +1,62 @@
+--- Total de personas x comuna
+SELECT c.nom_comuna, COUNT(*) AS total_personas
+FROM personas AS p
+JOIN hogares AS h ON p.hogar_ref_id = h.hogar_ref_id  
+JOIN viviendas AS v ON h.vivienda_ref_id = v.vivienda_ref_id
+JOIN zonas AS z ON v.zonaloc_ref_id = z.zonaloc_ref_id
+JOIN comunas AS c ON z.codigo_comuna = c.codigo_comuna
+GROUP BY c.nom_comuna
+ORDER BY total_personas;
+ 
+-- Total de personas x zona censal
+SELECT z.geocodigo, c.nom_comuna, COUNT(*) AS total_personas
+FROM personas AS p
+JOIN hogares AS h ON p.hogar_ref_id = h.hogar_ref_id  
+JOIN viviendas AS v ON h.vivienda_ref_id = v.vivienda_ref_id
+JOIN zonas AS z ON v.zonaloc_ref_id = z.zonaloc_ref_id
+JOIN comunas AS c ON z.codigo_comuna = c.codigo_comuna
+GROUP BY z.geocodigo, c.nom_comuna;
+
+--- Población menor de edad x comuna
+SELECT c.nom_comuna, 
+    c.codigo_comuna::double precision,
+	COUNT(*) AS total_personas,
+	COUNT(*) FILTER (WHERE p.p09 < 18) AS total_menores,
+	ROUND(COUNT(*) FILTER (WHERE p.p09 < 18) * 100.0 / COUNT(*), 2) AS porcentaje_menores
+FROM personas AS p
+JOIN hogares AS h ON p.hogar_ref_id = h.hogar_ref_id  
+JOIN viviendas AS v ON h.vivienda_ref_id = v.vivienda_ref_id
+JOIN zonas AS z ON v.zonaloc_ref_id = z.zonaloc_ref_id
+JOIN comunas AS c ON z.codigo_comuna = c.codigo_comuna
+GROUP BY c.nom_comuna, c.codigo_comuna
+ORDER BY porcentaje_menores ASC;
+
+-- Total de profesionales x zona censal
+
+CREATE TABLE output.tot_profesionales AS
+SELECT z.geocodigo, 
+    c.nom_comuna,
+	COUNT(*) AS total_personas,
+	COUNT(*) FILTER (WHERE p.p15 = 12) AS total_profesionales,
+	ROUND(COUNT(*) FILTER(WHERE p.p15 >= 12 AND p.p15 <=14) * 100.0 / COUNT(*) FILTER (WHERE p.p09 >= 18),2) AS porcentaje_profesionales
+FROM personas AS p
+JOIN hogares AS h ON p.hogar_ref_id = h.hogar_ref_id  
+JOIN viviendas AS v ON h.vivienda_ref_id = v.vivienda_ref_id
+JOIN zonas AS z ON v.zonaloc_ref_id = z.zonaloc_ref_id
+JOIN comunas AS c ON z.codigo_comuna = c.codigo_comuna
+GROUP BY z.geocodigo, c.nom_comuna
+ORDER BY porcentaje_profesionales DESC;
+
+-- Unir la geometria a la tabla de profesionales
+
+CREATE TABLE output.tot_prof_geom AS
+SELECT tp.geocodigo::double precision,
+    shp.geom,
+	tp.nom_comuna, 
+	tp.total_profesionales
+FROM output.tot_profesionales AS tp
+JOIN dpa.zonas_censales_v AS shp
+ON shp.geocodigo = tp.geocodigo::double precision;
+
+
+CREATE EXTENSION postgis;
