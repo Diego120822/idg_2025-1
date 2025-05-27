@@ -219,3 +219,5 @@ mapa_final = ggdraw() +
   draw_plot(leyenda_bivariada,          x = 0.75, y = 0.05, width = 0.25, height = 0.25)
 
 print(mapa_final)
+
+
