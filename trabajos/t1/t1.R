@@ -205,7 +205,7 @@ sf_comunas_centroides = st_centroid(sf_comunas_viña_del_mar)
 mapa_bivariado_etiquetas = ggplot() +
   geom_sf(data = sf_mapa_bi, aes(fill = bi_class), color = NA, show.legend = FALSE) +
   geom_sf(data = sf_comunas_viña_del_mar, fill = NA, color = 'black', size = 0.4) +
-  geom_sf_text(data = sf_comunas_centroides, aes(label = nom_comuna), size = 2, fontface = 'bold') +
+# geom_sf_text(data = sf_comunas_centroides, aes(label = nom_comuna), size = 2, fontface = 'bold') +
   bi_scale_fill(pal = 'DkBlue', dim = 3) +
   labs(title = 'Mapa bivariado para Personas con educación media o más vs. Personas ocupadas', subtitle= 'Provincia de Viña del Mar, V Región') +
   coord_sf(xlim = c(caja['xmin'], caja['xmax']), ylim = c(caja['ymin'], caja['ymax']), expand = FALSE) +
@@ -219,5 +219,6 @@ mapa_final = ggdraw() +
   draw_plot(leyenda_bivariada,          x = 0.75, y = 0.05, width = 0.25, height = 0.25)
 
 print(mapa_final)
+
 
 
