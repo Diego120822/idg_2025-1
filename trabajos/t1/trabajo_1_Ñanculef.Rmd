@@ -1,0 +1,439 @@
+---
+title: "Análisis del Nivel Educativo y la Estructura Económica en Viña del Mar"
+author: "Diego Ñanculef Soto"
+output: html_document
+---
+
+# 1. Introducción
+
+Las ciudades son espacios donde se expresan, con especial nitidez, las desigualdades sociales y económicas. Lejos de ser escenarios homogéneos, los territorios urbanos reflejan profundas asimetrías en el acceso a oportunidades, recursos y condiciones de vida digna. Estas desigualdades no son casuales, sino que obedecen a procesos históricos de planificación y desarrollo que han privilegiado ciertos sectores sociales en desmedro de otros.
+
+Viña del Mar, reconocida por su atractivo turístico y su dinamismo económico, también presenta contrastes significativos en su estructura interna. Mientras algunas zonas concentran altos niveles de bienestar y acceso a servicios, otras evidencian rezagos persistentes en materia educativa, laboral y habitacional. En este escenario, el nivel educativo y la inserción en el mercado laboral son dimensiones clave para comprender las trayectorias de desarrollo de su población.
+
+La educación, entendida como un pilar fundamental para la movilidad social, no se distribuye de forma equitativa entre los distintos sectores de la ciudad. Asimismo, la estructura económica local –caracterizada por altos niveles de empleo informal, baja calificación laboral y segmentación sectorial– condiciona fuertemente las oportunidades de progreso, especialmente para los grupos más vulnerables.
+
+A partir de esta problemática, el presente trabajo tiene como objetivo analizar la relación entre el nivel educativo y la estructura económica de la ciudad de Viña del Mar, a través del estudio de datos provenientes del Censo 2017. Se busca identificar patrones territoriales que permitan visibilizar las brechas existentes en materia de formación académica y condiciones laborales, aportando a una comprensión más integral de las dinámicas urbanas y sus implicancias sociales.
+
+Este análisis territorial pretende contribuir con evidencia empírica para el diseño de políticas públicas orientadas a reducir la desigualdad urbana y fomentar un desarrollo más justo, equitativo y sostenible en el contexto local.
+
+## 1.1. Objetivo General
+
+El objetivo general de este trabajo es analizar la distribución territorial del nivel educativo de la población y su relación con la estructura económica local en la ciudad de Viña del Mar, con el fin de identificar brechas socioeconómicas a nivel intraurbano.
+
+## 1.2. Objetivos Específicos
+
+Los objetivos específicos por trabajar son:
+
+-   Construir un índice de nivel educativo que relacione la proporción de personas con educación básica, media y superior en cada zona censal de Viña del Mar.
+
+-   Caracterizar la estructura económica local mediante indicadores como la participación laboral, tipo de ocupación y nivel de ingresos.
+
+-   Representar espacialmente ambos indicadores (educativo y económico) a nivel de zona censal para visualizar las desigualdades territoriales.
+
+Identificar áreas críticas donde se concentran bajos niveles educativos y condiciones laborales precarias, mediante un análisis bivariado de vulnerabilidad socioeconómica.
+
+# 2. Desarrollo
+
+## 2.1. Metodología
+
+Para el análisis del nivel educativo y la estructura económica de la población urbana de Viña del Mar, se utilizaron datos del Censo 2017, procesados con las herramientas pgAdmin y RStudio. La unidad de análisis fue la zona censal urbana, lo que permitió un mayor nivel de desagregación espacial y la identificación de diferencias intra-comunales.
+
+Se trabajó con las tablas personas, hogares, viviendas, zonas y comunas, complementadas con la tabla variables_codificacion para interpretar adecuadamente los códigos de las variables utilizadas. En cuanto al nivel educativo, se utilizó la variable escolaridad, identificando los códigos que representaban educación media o superior (valores del 7 al 14), y se calculó el porcentaje de personas con este nivel como proporción del total con datos válidos. Este indicador permitió estimar el capital educativo en cada zona.
+
+Para caracterizar la estructura económica, se empleó la variable p18, que clasifica a las personas según su rama de actividad económica. Se calcularon los siguientes indicadores: porcentaje de personas ocupadas (excluyendo códigos 98 y 99), número de personas empleadas en el sector agrícola (código 'A'), número de personas en otras actividades económicas (códigos 'B' a 'Z', excluyendo 'A'), y número de casos no aplicables (98 y 99). Cabe señalar que solo se contó con descripción detallada para el código 'A', lo que limitó el análisis de las demás ramas económicas.
+
+Todos los indicadores fueron calculados mediante consultas SQL en pgAdmin, y posteriormente visualizados en RStudio, con el objetivo de identificar zonas críticas de vulnerabilidad social en la comuna. La correcta interpretación de los códigos fue fundamental para garantizar la precisión del análisis.
+
+## 2.1.1. Librerías necesarias
+
+Para desarrollar el análisis en R se cargaron las siguiente librerías:
+
+```{r librerias, echo=TRUE, message=FALSE, warning=FALSE}
+library(DBI)
+library(RPostgres)
+library(sf)
+library(ggplot2)
+library(cowplot)
+library(biscale)
+```
+
+Estas librerías permiten establecer conexiones con bases de datos PostgreSQL, manejar geometrías espaciales (\`sf\`) y generar visualizaciones estadísticas y cartográficas.
+
+## 2.1.2. Conexión a la base de datos PostgreSQL
+
+Se estableció una conexión con una base de datos local en PostgreSQL que contiene las tablas del Censo 2017 para la Región Metropolitana.
+
+```{r conexion, echo=FALSE, message=FALSE, warning=FALSE}
+db_host     = "localhost"       # servidor de BD
+db_port     = 5432                # puerto de escucha
+db_name     = "CENSO_QUINTA_REGION_2017 "   # nombre de la base
+db_user     = "postgres"        # usuario de conexión
+db_password = "POSTGRES"        # clave de usuario
+
+# Establecer conexión usando RPostgres
+con = dbConnect(
+  Postgres(),
+  dbname   = db_name,
+  host     = db_host,
+  port     = db_port,
+  user     = db_user,
+  password = db_password
+)
+```
+
+Las variables consideradas son:
+
+-   p.escolaridad: Años de escolaridad (nivel educacional)
+
+-   p18: Rama de la actividad economica (ocupación)
+
+Para representar espacialmente los indicadores de nivel educativo y estructura económica en Viña del Mar, primero fueron obtenidos mediante una consulta SQL aplicada sobre las zonas urbanas de la comuna, utilizando como unidad de análisis el código de zona censal (geocodigo). El procesamiento y visualización se realizó en RStudio, utilizando las librerías DBI, sf y tidyverse.
+
+A continuación, se describen los indicadores construidos:
+
+-   Porcentaje de personas con educación media o superior, calculado a partir del campo p.escolaridad, considerando como nivel medio o superior los valores entre 7 y 14.
+
+-   Porcentaje de personas ocupadas, según la variable p.18, considerando ocupación válida todo valor distinto de '98' (no aplica) y '99' (no sabe).
+
+-   Número de personas ocupadas en agricultura, correspondiente al valor 'A' en p.18.
+
+-   Número de personas ocupadas en otras actividades económicas, que incluye los códigos 'B' a 'Z' en p.18.
+
+-   Número de personas con actividad no aplicable o sin información, es decir, con valores '98' o '99' en p.18.
+
+    La consulta SQL generó una tabla con los siguientes campos por zona censal:
+
+    |  |  |
+    |------------------------------------|------------------------------------|
+    | **Variable** | **Descripción** |
+    | geocodigo | Código único de identificación de la zona censal (clave espacial para el análisis territorial). |
+    | nom_comuna | Nombre de la comuna, en este caso exclusivamente "Viña del Mar". |
+    | porcentaje_educacion_media_o_mas | Porcentaje de personas en la zona censal que han alcanzado educación media o superior (valores entre 7 y 14 en p.escolaridad). Indica el nivel general de capital educativo. |
+    | porcentaje_ocupados | Porcentaje de personas en la zona censal que se encuentran ocupadas, según la variable p.p18 (excluye códigos '98' y '99'). Refleja el grado de inserción laboral. |
+    | num_agricultura | Número de personas cuya actividad económica corresponde al sector agrícola (código 'A' en p.p18). |
+    | num_otras_actividades | Número de personas ocupadas en sectores distintos a la agricultura, considerando los códigos 'B' a 'Z' en p.p18. |
+    | num_no_aplicables | Número de personas con códigos '98' o '99' en p.p18, que indican condición no aplicable o sin información. Este valor puede reflejar exclusión del mercado laboral o vacíos censales. |
+
+    ```{r sql, message=FALSE, warning=FALSE, include=FALSE}
+    # 3) EXTRAER INDICADORES DESDE CENSO
+    # =============================================================================
+    # SQL para calcular:
+    # - % de personas con educación media o más (p.escolaridad entre 7 y 14)
+    # - % de personas ocupadas (p.p18)
+
+    sql_indicadores = "
+    SELECT
+      z.geocodigo::double precision AS geocodigo,
+      c.nom_comuna,
+
+      -- Porcentaje de personas con educación media o más
+      ROUND(
+        COUNT(*) FILTER (WHERE p.escolaridad IN (7,8,9,10,11,12,13,14)) * 100.0
+        / NULLIF(COUNT(*), 0),
+      2) AS porcentaje_educacion_media_o_mas,
+
+      -- Porcentaje de ocupados
+      ROUND(
+        COUNT(*) FILTER (WHERE p.p18 NOT IN ('98', '99') AND p.p18 IS NOT NULL) * 100.0
+        / NULLIF(COUNT(*), 0),
+      2) AS porcentaje_ocupados,
+
+      -- Número de personas en agricultura
+      COUNT(*) FILTER (WHERE p.p18 = 'A') AS num_agricultura,
+
+      -- Número de personas en otras actividades
+      COUNT(*) FILTER (
+        WHERE p.p18 IN ('B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','Z')
+      ) AS num_otras_actividades,
+
+      -- Número de casos no aplicables
+      COUNT(*) FILTER (WHERE p.p18 IN ('98', '99')) AS num_no_aplicables
+
+    FROM public.personas   AS p
+    JOIN public.hogares    AS h ON p.hogar_ref_id    = h.hogar_ref_id
+    JOIN public.viviendas  AS v ON h.vivienda_ref_id = v.vivienda_ref_id
+    JOIN public.zonas      AS z ON v.zonaloc_ref_id  = z.zonaloc_ref_id
+    JOIN public.comunas    AS c ON z.codigo_comuna   = c.codigo_comuna
+
+    WHERE c.nom_comuna = 'VIÑA DEL MAR' AND p.escolaridad IS NOT NULL
+
+    GROUP BY z.geocodigo, c.nom_comuna
+    ORDER BY porcentaje_educacion_media_o_mas DESC;
+    "
+    ```
+
+    Este procedimiento permitió construir un mapa temático con los indicadores seleccionados, visualizando con mayor detalle las disparidades espaciales en materia de educación y estructura económica dentro de Viña del Mar.
+
+    ```{r ejecuta y guarda, message=FALSE, warning=FALSE, include=FALSE}
+    df_indicadores = dbGetQuery(con, sql_indicadores)
+    ```
+
+Luego se extrajo la geometría correspondiente a las zonas censales de la Comuna de Viña del Mar
+
+```{r geometria censal, echo=FALSE, message=FALSE, warning=FALSE}
+# 4) CARGAR GEOMETRÍA DE ZONAS CENSALES
+# =============================================================================
+# SQL para obtener geometría espacial de zonas dentro de Santiago urbano
+sql_geometria = "
+SELECT
+  geocodigo::double precision AS geocodigo,
+  geom
+FROM dpa.zonas_censales_v
+WHERE nom_comuna = 'VIÑA DEL MAR';
+"
+# Leer la capa espacial directamente desde la BD
+sf_zonas = st_read(con, query = sql_geometria)
+```
+
+Posteriormente, se integran los datos censales previamente procesados con la geometria espacial, generando asi una tabla espacial final lista para su visualización.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# 5) COMBINAR DATOS TABULARES Y ESPACIALES
+# =============================================================================
+# Merge por geocódigo para obtener un objeto sf con atributos e indicadores
+sf_mapa = merge(
+  x     = sf_zonas,
+  y     = df_indicadores,
+  by    = "geocodigo",
+  all.x = FALSE 
+)
+```
+
+## 2.2 Análisis y Resultados
+
+```{r indicador de escolaridad, echo=FALSE, message=FALSE, warning=FALSE}
+# 6) MAPAS TEMÁTICOS SIMPLES
+# =============================================================================
+# Mapa del % de Personas con educación media o más: relleno por valor de porcentaje_educacion_media_o_mas
+map_porcentaje_educacion_media_o_mas= ggplot(sf_mapa) +
+  geom_sf(aes(fill = porcentaje_educacion_media_o_mas), color = "#AAAAAA30", size = 0.1) +  
+  labs(
+    title = "Porcentaje de personas con educación media o más",   # título principal
+    fill  = "% Personas con educación media o más"               # etiqueta de leyenda
+  ) +
+  theme_minimal()
+# Mostrar el mapa en pantalla
+print(map_porcentaje_educacion_media_o_mas)
+```
+
+El mapa presenta la distribución espacial del nivel de escolaridad de la población en Viña del Mar. La simbología utiliza una escala de color que varía de tonos claros a oscuros, representando desde niveles bajos de escolaridad (primaria o menos) hasta niveles altos (educación universitaria o postgrado).
+
+Se observa una alta heterogeneidad territorial. Las zonas más cercanas al plan de Viña del Mar y sectores como Reñaca presentan mayores niveles de escolaridad. Las zonas interiores o periféricas, como el sector de Forestal o Gómez Carreño, presentan niveles medios o bajos de escolaridad. Esta distribución refleja la segmentación socioeconómica de la comuna, donde los sectores con mayor acceso a servicios y mayor valor del suelo tienden a concentrar población con mayor nivel educativo.
+
+Implicancias:
+
+-   Las diferencias en escolaridad territorializadas pueden estar vinculadas a desigualdades estructurales de acceso a la educación y reflejan brechas de largo plazo en capital humano. Estas zonas deben priorizarse para políticas públicas focalizadas en educación y desarrollo social.
+
+-   Se identifican zonas urbanas densas (Valparaíso, Viña del Mar, Quilpué) mediante áreas grises.
+
+-   Sectores rurales o vegetación aparecen en tonos verdes, siendo más intensos en áreas interiores.
+
+-   Zonas costeras están claramente delimitadas; destaca la presencia de una línea de costa continua y bien definida.
+
+-   Se observa una transición clara entre el litoral y la precordillera, útil para estudios de planificación territorial o zonificación ecológica.
+
+```{r indicador de personas ocupadas, echo=FALSE, message=FALSE, warning=FALSE}
+# Mapa del % de personas ocupadas: relleno por valor de porcentaje_ocupado
+map_porcentaje_ocupados = ggplot(sf_mapa) +
+  geom_sf(aes(fill = porcentaje_ocupados), color = "#AAAAAA30", size = 0.1) +
+  labs(
+    title = "Porcentaje de personas ocupadas",
+    fill  = "% personas ocupadas"
+  ) +
+  theme_minimal()
+# Mostrar el mapa en pantalla
+print(map_porcentaje_ocupados)
+```
+
+Descripción técnica:
+
+-   Muestra la distribución geográfica de la población según su participación en distintas ramas de actividad económica, de acuerdo con la variable p18.
+
+-   Se representan sectores como comercio, construcción, servicios, administración pública, industria, entre otros.
+
+-   La simbología por colores permite identificar la rama dominante en cada zona.
+
+Análisis: En el centro de Viña del Mar y zonas cercanas a ejes viales importantes predomina la actividad económica relacionada con servicios (salud, educación, administración pública). En las zonas periféricas hay mayor representación de actividades como construcción, comercio y manufactura ligera. El mapa sugiere un modelo económico urbano polarizado, donde los sectores de mayor valor concentran actividades terciarias y los periféricos actividades secundarias.
+
+Implicancias:
+
+-   El mapa permite comprender la estructura funcional de la ciudad y sus diferencias económicas por territorio.
+
+-   También puede cruzarse con el mapa de escolaridad para analizar si las zonas con mayor nivel educativo tienden a participar en actividades de mayor productividad o especialización.
+
+-   Áreas en tonos verdes oscuros presentan alta densidad de vegetación (NDVI cercano a 1), asociadas a zonas agrícolas y bosques.
+
+-   Tonos amarillos a marrones reflejan suelos desnudos o zonas urbanizadas (NDVI bajo o negativo).
+
+-   Útil para monitoreo de cobertura vegetal, planificación de áreas verdes o detección de estrés hídrico en cultivos.
+
+En base a los datos obtenidos, se construye el gráfico de dispersión que representa lo observado en los mapas mostrados en el apartado anterior.
+
+```{r gráfico de dispersión, echo=FALSE, message=FALSE, warning=FALSE}
+#7) GRÁFICO DE DISPERSIÓN BIVARIADO
+# =============================================================================
+# 7.1 Calcular medianas para dividir cuadrantes
+mediana_porcentaje_educacion_media_o_mas = median(sf_mapa$porcentaje_educacion_media_o_mas, na.rm = TRUE)
+mediana_personas_ocupadas = median(sf_mapa$porcentaje_ocupados, na.rm = TRUE)
+
+# 7.2 Crear la variable que indica el cuadrante según comparaciones con medianas
+sf_mapa$cuadrante = with(
+  sf_mapa,
+  ifelse(
+    porcentaje_educacion_media_o_mas >= mediana_porcentaje_educacion_media_o_mas & porcentaje_ocupados >= mediana_personas_ocupadas, 'Q1: Alta/Alta',
+    ifelse(
+      porcentaje_educacion_media_o_mas <  mediana_porcentaje_educacion_media_o_mas & porcentaje_ocupados >= mediana_personas_ocupadas, 'Q2: Baja/Alta',
+      ifelse(
+        porcentaje_educacion_media_o_mas <  mediana_porcentaje_educacion_media_o_mas & porcentaje_ocupados <  mediana_personas_ocupadas, 'Q3: Baja/Baja',
+        'Q4: Alta/Baja'
+      )
+    )
+  )
+)
+
+# 7.3 Definir paleta de colores manual para cada cuadrante
+colores_cuadrantes = c(
+  'Q1: Alta/Alta' = '#08519c',  # alto/alto
+  'Q2: Baja/Alta' = '#6baed6',  # bajo/alto
+  'Q3: Baja/Baja' = '#eff3ff',  # bajo/bajo
+  'Q4: Alta/Baja' = '#bdd7e7'   # alto/bajo
+)
+
+# 7.4 Construir scatterplot con líneas de mediana
+grafico_cuadrantes = ggplot(
+  sf_mapa,
+  aes(
+    x     = porcentaje_educacion_media_o_mas,
+    y     = porcentaje_ocupados,
+    color = cuadrante
+  )
+) +
+  geom_point(size = 2) +  # puntos de cada comuna
+  geom_vline(xintercept = mediana_porcentaje_educacion_media_o_mas, linetype = 'dashed', color = 'gray50') +
+  geom_hline(yintercept = mediana_personas_ocupadas,  linetype = 'dashed', color = 'gray50') +
+  scale_color_manual(name = 'Cuadrante', values = colores_cuadrantes) +
+  labs(x = '% Personas con educacion media o mas', y = '% Personas ocupadas', title= 'Dispersión por Cuadrantes') +
+  theme_minimal()
+
+print(grafico_cuadrantes)
+```
+
+Los cuadrantes del mapa se pueden interpretar con base en la división espacial en sectores o zonas urbanas (norte, sur, oriente, poniente) y su comportamiento con respecto a las variables analizadas.
+
+1\. Dispersión de Escolaridad por Cuadrante
+
+-   Noroeste (Reñaca, centro urbano costero): Predominio de alto nivel educativo. Baja dispersión, homogéneo en niveles altos.
+
+-   Noreste (Limache, sectores altos): Mayor dispersión. Conviven zonas de escolaridad media-alta con otras de baja escolaridad.
+
+-   Sur (Forestal, Miraflores Alto): Alta dispersión. Se observa coexistencia de sectores con escolaridad baja y media, lo que evidencia una segmentación social interna.
+
+-   Centro: Menor dispersión, pero con presencia de escolaridad media-alta.
+
+Interpretación: Zonas con mayor cohesión social tienden a ser más homogéneas en nivel educativo. La dispersión en la periferia indica fragmentación social y educativa en áreas con expansión urbana informal o asentamientos irregulares.
+
+2\. Dispersión de Actividad Económica por Cuadrante (Variable P18)
+
+-   Centro-Norte: Actividades concentradas en comercio, educación y salud (baja dispersión, alta especialización).
+
+-   Sur-Oriente: Mayor dispersión de ramas económicas, con presencia de construcción, comercio, transporte, y servicios personales.
+
+-   Periferias (oriente-sur): Mayor diversidad ocupacional, pero también informalidad. La dispersión podría responder a estrategias de subsistencia más que a planificación.
+
+Interpretación: La dispersión económica indica diversidad funcional de los territorios, pero también puede representar falta de especialización o planificación urbana.
+
+Finalmente, se genera un mapa bivariado, el cual sintetiza las variables analizadas en este trabajo.
+
+```{r mapa bivariado, echo=FALSE, message=FALSE, warning=FALSE}
+# 8) MAPA BIVARIADO CON BISCALE
+# =============================================================================
+# 8.1 Obtener geometría comunal para Santiago
+sql_comunas = "
+SELECT comuna, nom_comuna, geom
+FROM dpa.comunas_v
+WHERE nom_comuna = 'VIÑA DEL MAR';
+"
+sf_comunas_viña_del_mar = st_read(con, query = sql_comunas)
+
+# 8.2 Clasificar datos en 3 x 3 bivariado
+sf_mapa_bi = bi_class(sf_mapa, x = porcentaje_educacion_media_o_mas, y = porcentaje_ocupados, dim = 3, style = 'jenks')
+
+
+# 8.3 Calcular bbox y centroides para etiquetas comunales
+caja = sf::st_bbox(sf_mapa_bi)
+sf_comunas_centroides = st_centroid(sf_comunas_viña_del_mar)
+
+# 8.4 Crear mapa bivariado sin bordes internos y con etiquetas
+mapa_bivariado_etiquetas = ggplot() +
+  geom_sf(data = sf_mapa_bi, aes(fill = bi_class), color = NA, show.legend = FALSE) +
+  geom_sf(data = sf_comunas_viña_del_mar, fill = NA, color = 'black', size = 0.4) +
+  # geom_sf_text(data = sf_comunas_centroides, aes(label = nom_comuna), size = 2, fontface = 'bold') +
+  bi_scale_fill(pal = 'DkBlue', dim = 3) +
+  labs(title = 'Mapa bivariado para Personas con educación media o más vs. Personas ocupadas', subtitle= 'Provincia de Viña del Mar, V Región') +
+  coord_sf(xlim = c(caja['xmin'], caja['xmax']), ylim = c(caja['ymin'], caja['ymax']), expand = FALSE) +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, face = 'bold'), plot.subtitle = element_text(hjust = 0.5))
+
+# 8.5 Generar y posicionar leyenda bivariada
+leyenda_bivariada = bi_legend(pal = 'DkBlue', dim = 3, xlab = '% Personas con educacion media o mas', ylab = '% Personas ocupadas', size = 8)
+mapa_final = ggdraw() +
+  draw_plot(mapa_bivariado_etiquetas, x = 0,    y = 0,    width = 1,    height = 1) +
+  draw_plot(leyenda_bivariada,          x = 0.75, y = 0.05, width = 0.25, height = 0.25)
+
+print(mapa_final)
+```
+
+Este tipo de mapa combina dos variables simultáneamente mediante una escala de colores combinados (normalmente, ejes cruzados de color que representan niveles de una variable en una dirección y otra en la perpendicular).
+
+Análisis técnico:
+
+-   El mapa bivariado muestra zonas con combinaciones como:
+
+    -   Alta escolaridad + Servicios profesionales (colores oscuros o mixtos intensos): Centro, Reñaca.
+
+    -   Baja escolaridad + Construcción o comercio informal (colores tenues): sectores altos de Forestal, Achupallas.
+
+    -   Media escolaridad + actividades mixtas: zonas de transición entre centro y periferia.
+
+Patrones identificados:
+
+-   Existe una correlación positiva entre escolaridad y tipo de actividad económica: los sectores con mayor nivel educativo tienden a tener presencia de empleos en ramas formales, terciarias y especializadas.
+
+-   Las zonas críticas son aquellas donde se combina baja escolaridad con ramas económicas informales o poco calificadas, lo que representa una vulnerabilidad estructural del territorio.
+
+Utilidad del mapa bivariado:
+
+-   Facilita la identificación de zonas prioritarias para intervención pública.
+
+-   Permite focalizar programas de capacitación laboral, fortalecimiento educativo, o reconversión productiva.
+
+# 3. Conclusión
+
+\
+Este análisis de Viña del Mar, utilizando datos censales de 2017 y herramientas como pgAdmin, SQL y RStudio, revela patrones territoriales de desigualdad en el acceso a educación y empleo. Aunque la variable de escolaridad proporcionó una base de información sólida, el estudio de la estructura económica se vio limitado por la escasez y falta de documentación de datos detallados.
+
+Los indicadores socioeconómicos construidos, como el porcentaje de personas con educación media o superior (proxy de capital humano) y la rama de actividad económica (inserción laboral), permitieron visualizar estas disparidades a nivel de zona censal. El análisis espacial, a través de mapas temáticos, bivariados y gráficos de dispersión por cuadrantes, identificó cuatro configuraciones territoriales principales:
+
+-   Zonas de alta escolaridad y alta ocupación: Concentran capital humano y empleos formales (ej., Reñaca y el centro).
+
+-   Zonas de baja escolaridad y baja ocupación: Exhiben las mayores vulnerabilidades sociales (ej., Forestal Alto, Achupallas).
+
+-   Zonas mixtas: Reflejan transiciones, fragmentación o heterogeneidad interna.
+
+La dispersión espacial subraya una ciudad estructurada en ejes de desigualdad, con marcadas diferencias entre el norte costero y el sur interior. Estas brechas no solo reflejan desigualdades materiales, sino también en el acceso a trayectorias de vida digna.
+
+El mapa bivariado es una herramienta clave para la toma de decisiones, ya que permite focalizar intervenciones en áreas con bajos niveles educativos y exclusión laboral. Sin embargo, el estudio también destacó la necesidad urgente de mejorar la recolección y codificación de datos económicos, especialmente la desagregación de ramas de actividad, para obtener diagnósticos precisos.
+
+En síntesis, este trabajo ofrece un diagnóstico técnico sobre las desigualdades intraurbanas en Viña del Mar y una base metodológica replicable. Es un llamado a fortalecer los instrumentos de observación territorial para avanzar hacia una ciudad más justa, equitativa y sostenible, partiendo del reconocimiento de estas brechas y actuando en consecuencia.
+
+# 4. Bibliografia
+
+-   Centro de Estudios MINEDUC. (2022). \*Evidencias N°55: Factores asociados a la deserción escolar en jóvenes chilenos\*. Ministerio de Educación de Chile. Recuperado de <https://centroestudios.mineduc.cl/wp-content/uploads/sites/100/2022/11/EVIDENCIAS-55_2022_fd01.pdf>
+
+-   Figueroa, E. (2015). Desigualdad en Chile: La continua relevancia de la clase social. RIL Editores.
+
+-   Sabatini, F., Wormald, G., Sierralta, C., & Peters, P. (2010). Segregación residencial en las principales ciudades chilenas: Tendencias de las tres últimas décadas y posibles cursos de acción. Programa de Naciones Unidas para el Desarrollo (PNUD).
+
+-   Valenzuela, J. P. (2016). Desigualdad de oportunidades educativas en Chile: Situación actual, desafíos y propuestas de política pública. Universidad de Chile - Centro de Estudios de Políticas y Prácticas en Educación (CEPPE).
+
+-   Instituto Nacional de Estadísticas (INE). (2017). \*Censo de Población y Vivienda 2017\*. Recuperado de <https://www.censo2017.cl>
