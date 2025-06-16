@@ -230,4 +230,3 @@ ggplot(zonas_v1_sf) +
     subtitle = "Microsimulación espacial basada en CASEN 2022 y CENSO 2017"
   ) +
   theme(axis.text = element_blank(), axis.ticks = element_blank())
-
