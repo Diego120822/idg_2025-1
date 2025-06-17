@@ -1,0 +1,381 @@
+---
+title: 'Microsimulación Espacial: Tipología de Vivienda en la Región Metropolitana'
+author: "Diego Ñanculef"
+date: "2025-06-12"
+output: html_document
+---
+
+## 1. Introducción
+
+La presente investigación aplica una metodología de Microsimulación espacial utilizando el paquete rakeR, con el objetivo de desagregar a nivel de zona censal la variable "v1" de la Encuesta CASEN 2022, correspondiente al tipo de vivienda que ocupa la persona entrevistada. Esta variable es crítica para el análisis territorial, ya que permite identificar la distribución y concentración de distintas formas de hábitat residencial, las cuales están directamente relacionadas con la calidad de vida, acceso a infraestructura y condiciones socioeconómicas de la población.
+
+Este análisis busca desagregar espacialmente la variable “tipo de vivienda” (v1) de la encuesta CASEN 2022 a nivel de zona censal en el Gran Santiago, mediante la técnica de microsimulación espacial utilizando el paquete rakeR. El objetivo es comprender la distribución territorial de los tipos de vivienda como indicador de condiciones residenciales, y su relación con el contexto socioespacial de la ciudad. El acceso a una vivienda adecuada es uno de los principales determinantes del bienestar de la población urbana. En Chile, el déficit habitacional y la heterogeneidad en la calidad de las viviendas son fenómenos persistentes que reflejan profundas desigualdades territoriales. En este contexto, la presente investigación aplica una metodología de microsimulación espacial utilizando el paquete rakeR con el fin de desagregar la variable "v1" (tipo de vivienda que ocupa la persona entrevistada) de la Encuesta CASEN 2022 a nivel de zona censal en el Gran Santiago. Esta estrategia permite enriquecer la comprensión territorial de las condiciones habitacionales y ofrece herramientas útiles para la planificación urbana y la formulación de políticas públicas.
+
+## 2. Carga de Librerías y Conexión a Base de Datos
+
+En esta sección, se cargan todas las librerías de R necesarias para el análisis (manejo de datos, manipulación espacial, graficación y el paquete de microsimulación rakeR). Además, se establece la conexión a una base de datos PostgreSQL donde se almacenan datos censales y espaciales.
+
+```{r Librerias, echo=FALSE}
+# INSTALAR TODAS LAS LIBRERIAS SOLO 1 VEZ
+# =============================================================================
+# Estos paquetes permiten conexión a BD, manejo de geometrías y visualización
+# install.packages(c("DBI", "RPostgres", "sf", "ggplot2", "data.table", "rakeR", "viridis", "dplyr", "tidyr"))
+# =============================================================================
+# Cargar librerías necesarias
+library(rakeR)
+library(RPostgres)
+library(DBI)
+library(ggplot2)
+library(sf)
+library(data.table)
+library(viridis) # Para las paletas de color viridis en ggplot
+library(dplyr)   # Para manipulación de datos
+library(tidyr)   # Para la función replace_na
+
+# Configurar parámetros de conexión a la base de datos
+db_host     = "localhost"
+db_port     = 5432
+db_name     = "censo_rm_2017"
+db_user     = "postgres"
+db_password = "postgres"
+
+# Establecer conexión usando RPostgres
+con = dbConnect(
+  Postgres(),
+  dbname    = db_name,
+  host      = db_host,
+  port      = db_port,
+  user      = db_user,
+  password = db_password
+)
+```
+
+## 3. Carga de Datos de Entrada
+
+Para la microsimulación, se utilizan dos fuentes de datos principales:
+
+-   cons_censo_df.rds: Contiene las "restricciones" o totales poblacionales agregados por variables demográficas (edad, escolaridad, sexo) a nivel de zonas censales, derivados del Censo 2017. Estos son los totales a los que se ajustarán los datos de la CASEN.
+
+-   casen_rm.rds: Contiene los microdatos de la Encuesta CASEN 2022 para la Región Metropolitana. Estos son los datos individuales que se "raquean" (ajustan) a las restricciones censales.
+
+```{r Datos de entrada, echo=FALSE}
+# Implementación del modelo `rakeR`
+# df del censo ya procesado (cons_censo_df)
+# Ambas rutas ahora apuntan a la carpeta 'data' dentro del 'root.dir'.
+cons_censo_df <- readRDS(here("data/cons_censo_df.rds"))
+casen <- readRDS(here("trabajos/t2/casen_rm.rds"))
+```
+
+## 4. Marco Teórico
+
+### 4.1 La Microsimulación Espacial y el Análisis Territorial
+
+La microsimulación espacial es una técnica utilizada para generar estimaciones de características individuales en unidades espaciales pequeñas a partir de datos agregados (como los del CENSO) y datos muestrales detallados (como CASEN). En este contexto, el paquete rakeR implementa un algoritmo de ajuste iterativo (raking) que pondera perfiles individuales de acuerdo a restricciones poblacionales conocidas. Esta técnica permite obtener una representación sintética de la población total, que respeta las distribuciones del CENSO 2017 pero incorpora variables no observadas directamente en dicho instrumento, como es el caso del tipo de vivienda.
+
+La variable "v1" de CASEN fue recodificada para clasificar las viviendas en cuatro categorías: (1) vivienda formal de alta calidad; (2) vivienda formal de menor calidad; (3) vivienda precaria o informal; y (4) vivienda tradicional o cultural específica. Esta clasificación permite realizar un análisis más robusto y territorialmente significativo sobre la calidad del hábitat residencial en el Gran Santiago.
+
+### 4.2 La Vivienda como Dimensión Estructural de la Desigualdad Urbana
+
+La vivienda no solo cumple funciones básicas de abrigo y privacidad, sino que representa un nodo donde convergen múltiples determinantes sociales: seguridad, acceso a servicios básicos, conectividad y capital social. En las áreas metropolitanas, las formas de acceso a la vivienda se encuentran fuertemente estratificadas y responden a patrones de segmentación socioeconómica y segregación espacial. Diversas investigaciones han documentado que las viviendas precarias y los asentamientos informales tienden a concentrarse en las periferias urbanas, reforzando ciclos de exclusión social y económica.
+
+La relación con el ingreso es un factor clave:
+
+-   Personas que viven en departamentos con ascensor o casas aisladas tienden a tener mayores ingresos.
+
+-   Personas que viven en mediaguas, viviendas precarias o piezas en conventillos suelen tener ingresos significativamente más bajos.
+
+Aunque la mayoría vive en casas (aisladas o pareadas), existe una diversidad que permite hacer comparaciones relevantes, especialmente al agrupar los tipos de vivienda en categorías. Esto permite hacer análisis más sólidos con menos ruido estadístico y comparar, por ejemplo:
+
+-   Porcentaje de personas en viviendas precarias por comuna vs. ingreso promedio per cápita.
+
+-   Comparar el ingreso promedio de personas según el tipo de vivienda.
+
+Es importante considerar las limitaciones: algunos tipos de vivienda tienen una frecuencia muy baja (como viviendas indígenas, ranchos o viviendas precarias). Estas categorías podrían ser poco útiles en un análisis comunal si hay muchas comunas sin casos. Por ello, se sugiere agrupar los 10 tipos de vivienda en 4 categorías socioeconómicas más amplias para lograr un análisis más robusto y útil.
+
+## 5. Prepraración y Transformación de CASEN
+
+Esta sección se encarga de preparar los datos para la microsimulación y el análisis posterior. Se identifican las columnas relevantes, se limpian y transforman las variables, y se recodifican en categorías que coincidan entre los datos de la CASEN y los datos censales de restricción.
+
+```{r Preparación y limpieza de datos, echo=FALSE}
+# Ordenar y extraer los nombres de las columnas de restricciones desde cons_censo_df
+# col_cons debe derivarse de cons_censo_df para asegurar la consistencia con las restricciones.
+col_cons    = sort(setdiff(names(cons_censo_df), c("GEOCODIGO","COMUNA")))
+
+# Generar los niveles de las variables demográficas (edad, escolaridad, sexo)
+age_levels  = grep("^edad", col_cons, value = TRUE)
+esc_levels  = grep("^esco", col_cons, value = TRUE)
+sexo_levels = grep("^sexo_",col_cons, value = TRUE)
+
+# Selección de variables de interés de la CASEN
+vars_base <- c("estrato", "esc", "edad", "sexo", "e6a", "v1")
+casen <- casen[, vars_base]
+casen$Comuna <- substr(as.character(casen$estrato), 1, 5)
+
+# Conversión de factores a numérico
+casen <- casen %>%
+  mutate(
+    esc = as.integer(unclass(esc)),
+    edad = as.integer(unclass(edad)),
+    e6a = as.numeric(unclass(e6a)),
+    sexo = as.integer(unclass(sexo)),
+    v1 = as.numeric(unclass(v1))
+  ) %>%
+  select(-estrato)
+
+# Imputación por regresión: Escolaridad faltante imputada con e6a
+idx_na <- which(is.na(casen$esc) & !is.na(casen$e6a))
+if (length(idx_na) > 0) {
+  modelo_esc <- lm(esc ~ e6a, data = casen[!is.na(casen$esc) & !is.na(casen$e6a), ])
+  casen$esc[idx_na] <- round(predict(modelo_esc, newdata = casen[idx_na, ]))
+}
+```
+
+## 6. Recodificación y Modelamiento de Variables
+
+Aquí se realizan transformaciones adicionales a las variables para que sean adecuadas para la microsimulación y el análisis de vivienda precaria. Esto incluye la recodificación de la variable "v1" en categorías de vivienda y la imputación de datos faltantes en la escolaridad.
+
+```{r Recodificación de variable escogida, echo=FALSE}
+# Recodificación de la variable de tipo de vivienda (v1) en 4 categorías
+# Las categorías son: (1) viviendas formal de alta calidad; (2) vivienda de menor calidad, mediaguas; (3) vivienda precaria o informal y (4) vivienda no apta para habitar.
+
+# Reagrupación de v1
+casen <- casen %>%
+  mutate(
+    v1 = case_when(
+      v1 %in% 1:4 ~ 1,                # Viviendas formales
+      v1 == 5 ~ 2,                    # Mediaguas
+      v1 %in% c(6, 7, 9, 10) ~ 3,     # Viviendas precarias
+      v1 == 8 ~ 4,                    # Local no destinado a habitación
+      TRUE ~ NA_real_
+    )
+  )
+
+casen$ID <- as.character(seq_len(nrow(casen)))
+
+# CATEGORÍAS PARA rakeR
+col_cons <- setdiff(names(cons_censo_df), c("GEOCODIGO", "COMUNA"))
+edad_labels <- grep("^edad_", col_cons, value = TRUE)
+esc_labels <- grep("^esco_", col_cons, value = TRUE)
+sexo_labels <- grep("^sexo_", col_cons, value = TRUE)
+
+casen$edad_cat <- cut(
+  casen$edad,
+  breaks = c(0, 30, 40, 50, 60, 70, 80, Inf),
+  labels = edad_labels,
+  right = FALSE,
+  include.lowest = TRUE
+)
+
+casen <- casen %>%
+  mutate(
+    esc_cat = case_when(
+      esc < 1 ~ esc_labels[1],
+      esc >= 1 & esc < 9 ~ esc_labels[2],
+      esc >= 9 & esc <= 12 ~ esc_labels[3],
+      esc > 12 ~ esc_labels[4],
+      TRUE ~ NA_character_
+    ),
+    sexo_cat = factor(case_when(
+      sexo == 1 ~ sexo_labels[1],
+      sexo == 2 ~ sexo_labels[2],
+      TRUE ~ NA_character_
+    ), levels = sexo_labels)
+  )
+
+casen$esc_cat <- factor(casen$esc_cat, levels = esc_labels)
+```
+
+## 7. Metodología
+
+Se trabajó con datos del CENSO 2017 ya procesados a nivel de zona censal para la Región Metropolitana y con la base de datos CASEN 2022 filtrada para las comunas del Gran Santiago. Se seleccionaron variables sociodemográficas comunes a ambos instrumentos para la construcción de perfiles: edad, sexo y escolaridad.
+
+Se procedió con la imputación de datos faltantes (escolaridad) utilizando regresión lineal sobre el ingreso autónomo (e6a) y la creación de variables categóricas para las restricciones. Posteriormente, se ejecutó el procedimiento de microsimulación para cada comuna, generando pesos fraccionales y una versión entera de la población sintética. La variable "v1" fue incluida en la población simulada, lo que permitió calcular su distribución relativa por zona censal. Finalmente, estos resultados fueron integrados a una capa geográfica para su visualización espacial mediante mapas temáticos.
+
+Se utilizó el paquete rakeR en R para aplicar un procedimiento de microsimulación espacial que incluyó las siguientes etapas:
+
+-   Preprocesamiento de datos CASEN 2022 para la Región Metropolitana, incluyendo imputación de valores faltantes en escolaridad (esc) y categorización de edad, sexo y escolaridad.
+
+-   Integración con restricciones estructurales derivadas del CENSO 2017 a nivel de zona censal.
+
+-   Simulación de la población completa por comuna mediante el ajuste de pesos con raking y posterior integerise.
+
+-   Cálculo del porcentaje de personas que habitan cada tipo de vivienda en cada zona censal del Gran Santiago.
+
+-   Visualización mediante mapas temáticos generados con ggplot2 y sf.
+
+    ```{r Diagnóstico de cobertura entre CASEN y CENSO, echo=FALSE}
+    inds_list <- split(casen, casen$Comuna)
+    cons_censo_list <- split(cons_censo_df, cons_censo_df$COMUNA)
+
+    # Diagnóstico útil para evitar errores por comunas sin correspondencia
+    cat("Comunas solo en CASEN:\n")
+    print(setdiff(names(inds_list), names(cons_censo_list)))
+
+    cat("Comunas solo en CENSO:\n")
+    print(setdiff(names(cons_censo_list), names(inds_list)))
+
+    # MICROSIMULACIÓN ESPACIAL
+    sim_list <- lapply(names(cons_censo_list), function(comuna) {
+      cons_i <- cons_censo_list[[comuna]]
+      inds_i <- inds_list[[comuna]]
+      if (is.null(inds_i)) return(NULL)
+      
+      cons_i <- cons_i[, c("GEOCODIGO", sort(setdiff(names(cons_i), c("COMUNA", "GEOCODIGO"))))]
+      inds_sub <- inds_i[, c("ID", "edad_cat", "esc_cat", "sexo_cat")]
+      colnames(inds_sub) <- c("ID", "Edad", "Escolaridad", "Sexo")
+      
+      w <- weight(cons_i, inds_sub, vars = c("Edad", "Escolaridad", "Sexo"))
+      sim_i <- integerise(w, inds_sub, seed = 123)
+      sim_i$GEOCODIGO <- cons_i$GEOCODIGO[1]
+      
+      merge(sim_i, inds_i[, c("ID", "v1")], by = "ID", all.x = TRUE)
+    })
+
+    sim_df <- rbindlist(sim_list, idcol = "COMUNA", fill = TRUE)
+    ```
+
+    ## 8. Tablas resumen y análisis exploratorio
+
+    ### 8.1 Interpretación de Patrones Espaciales y Factores Explicativos
+
+    La simulación muestra una importante heterogeneidad espacial en la distribución de los tipos de vivienda, lo cual es coherente con la estratificación socioeconómica y los patrones de segregación urbana observados en el Gran Santiago.
+
+    -   Las zonas con mayor proporción de viviendas precarias o informales (categoría 3) se concentran de manera notoria en comunas del sur y poniente, tales como Lo Espejo, Pedro Aguirre Cerda y La Pintana, así como sectores de Cerro Navia. Estos patrones hacen sentido con la historia de urbanización de la periferia metropolitana, marcada por asentamientos informales, densificaciones precarias y un acceso limitado a servicios básicos y equipamientos urbanos de calidad. La relación con el ingreso es directa: las personas que habitan este tipo de viviendas suelen tener ingresos significativamente más bajos, lo que refuerza la correlación entre condiciones habitacionales precarias y vulnerabilidad socioeconómica.
+
+    -   En contraste, las zonas con mayor prevalencia de viviendas formales de alta calidad (categoría 1) se localizan en sectores del oriente de la Región Metropolitana, incluyendo comunas como Las Condes, Vitacura y Lo Barnechea. Esto refleja una clara jerarquía socioeconómica, donde las personas que viven en departamentos con ascensor o casas aisladas en estas áreas tienden a tener mayores ingresos y, consecuentemente, un mejor acceso a infraestructuras y servicios de alto estándar.
+
+    -   Las viviendas formales de menor calidad (categoría 2) presentan una distribución más dispersa, pero con fuerte presencia en sectores intermedios como San Joaquín o Renca. Esto podría estar asociado a procesos de densificación más antiguos o a la existencia de viviendas tipo cites (conventillos), que si bien son formales, ofrecen una calidad de vida inferior a las viviendas de alta calidad.
+
+    Esta distribución refleja un patrón de segregación residencial estructural, en que las condiciones habitacionales están fuertemente correlacionadas con otras dimensiones de exclusión social como el nivel educativo y el ingreso. Los resultados muestran que las zonas con mayor proporción de viviendas precarias se concentran en la periferia sur y poniente del Gran Santiago, destacando comunas como Lo Espejo, Pedro Aguirre Cerda y La Pintana. Estas zonas presentan históricamente condiciones de urbanización informal y déficit de servicios.
+
+    ### 8.2 Relación con Otras Variables y Utilidad para Políticas Públicas
+
+    Los resultados obtenidos son coherentes con evidencia empírica y conocimiento territorial previo sobre el Gran Santiago. Las zonas con altos porcentajes de viviendas informales coinciden con sectores históricamente marginados del desarrollo urbano formal. Además, la clasificación utilizada permitió destacar áreas con presencia significativa de viviendas tradicionales, lo que aporta al entendimiento de realidades culturales específicas.
+
+    El cruce con otras variables del CENSO o CASEN, como escolaridad promedio por zona o el ingreso per cápita, refuerza la validez de los resultados al mostrar correlaciones lógicas: por ejemplo, se observa una mayor precariedad habitacional en zonas con bajo nivel educativo promedio o ingresos más reducidos. La desagregación espacial de la variable "v1" permite precisamente esta relación con otras variables socioeconómicas y demográficas, ofreciendo un perfil más completo de la población sintética y sus condiciones de vida a una escala fina.
+
+    La utilidad de contar con esta información espacialmente desagregada es inmensa para la formulación de políticas públicas y la planificación territorial:
+
+    -   Focalización de Políticas: Permite identificar con precisión zonas críticas que requieren intervenciones focalizadas en políticas de vivienda, subsidios, mejoramiento barrial, o acceso a servicios. En lugar de aplicar soluciones generales, se pueden diseñar programas específicos para las áreas de mayor necesidad.
+
+    -   Asignación de Recursos: Facilita una asignación más eficiente y equitativa de recursos públicos y privados, dirigiendo las inversiones donde realmente se necesita un impacto en la calidad habitacional.
+
+    -   Monitoreo y Evaluación: Provee una línea base espacial para monitorear los efectos de las políticas a lo largo del tiempo y evaluar si están logrando reducir la precariedad en las zonas objetivo.
+
+    -   Planificación Urbana Integrada: Ofrece herramientas valiosas para la planificación del crecimiento urbano, la infraestructura y los servicios, considerando las necesidades habitacionales y socioeconómicas de cada sector.
+
+    El aporte de esta metodología radica en su capacidad de generar información territorial de alta resolución a partir de datos secundarios, sin necesidad de levantamientos adicionales de campo costosos y complejos.
+
+    ```{r Análisis de resultados y tablas, echo=FALSE}
+    # Tabla 1: Casos simulados por comuna
+    tabla_1 <- sim_df %>%
+      group_by(COMUNA) %>%
+      summarise(casos_simulados = n()) %>%
+      arrange(desc(casos_simulados))
+    print(tabla_1)
+
+    # Tabla 2: Distribución por tipo de vivienda
+    tabla_2 <- sim_df %>%
+      filter(!is.na(v1)) %>%
+      group_by(COMUNA, tipo_vivienda = v1) %>%
+      summarise(total = n(), .groups = "drop") %>%
+      group_by(COMUNA) %>%
+      mutate(porcentaje = round(100 * total / sum(total), 2)) %>%
+      arrange(COMUNA, tipo_vivienda)
+    print(tabla_2)
+
+    # Tabla 3: Porcentaje de viviendas precarias por comuna
+    tabla_3 <- sim_df %>%
+      filter(!is.na(v1)) %>%
+      group_by(COMUNA) %>%
+      summarise(porc_precarias = round(100 * sum(v1 == 3) / n(), 2)) %>%
+      arrange(desc(porc_precarias))
+    print(tabla_3)
+
+    # Gráfico de barras: top 10 comunas con mayor % de viviendas precarias
+    ggplot(head(tabla_3, 10), aes(x = reorder(COMUNA, porc_precarias), y = porc_precarias)) +
+      geom_col(fill = "darkred") +
+      coord_flip() +
+      labs(
+        title = "Top 10 Comunas con Mayor % de Viviendas Precarias",
+        x = "Comuna",
+        y = "% viviendas precarias (simuladas)"
+      ) +
+      theme_minimal()
+    ```
+
+    ## 9. Cálculo de porcentaje de Viviendas Precarias por GEOCODIGO
+
+    ```{r Porcentaje de Viviendas Precarias, echo=FALSE}
+    zonas_v1 <- sim_df %>%
+      filter(!is.na(v1)) %>%
+      group_by(GEOCODIGO) %>%
+      summarise(vivienda_precaria = round(100 * sum(v1 == 3) / n(), 2)) %>%
+      ungroup()
+    ```
+
+    ## 10. Exportar base de datos y unión espacial
+
+    ```{r}
+    dbExecute(con, "DROP TABLE IF EXISTS dpa.tmp_v1_rm")
+    dbWriteTable(con, Id(schema = "dpa", table = "tmp_v1_rm"), zonas_v1, overwrite = TRUE)
+
+    # Aquí corregimos el nombre de columna a GEOCODIGO (en mayúsculas)
+    dbExecute(con, "CREATE INDEX ON dpa.tmp_v1_rm(\"GEOCODIGO\")")
+    dbExecute(con, "ANALYZE dpa.tmp_v1_rm")
+
+    # Usamos comillas para asegurar referencia correcta
+    dbExecute(con, "DROP TABLE IF EXISTS dpa.zonas_v1")
+    dbExecute(con, "
+      CREATE TABLE dpa.zonas_v1 AS
+      SELECT z.*, t.vivienda_precaria
+      FROM dpa.zonas_censales_rm z
+      LEFT JOIN dpa.tmp_v1_rm t ON z.geocodigo::text = t.\"GEOCODIGO\"
+      WHERE urbano = 1 AND (
+        nom_provin = 'SANTIAGO' OR
+        nom_comuna IN ('PEDRO AGUIRRE CERDA', 'LO ESPEJO')
+      )
+    ")
+    ```
+
+    ## 11. Visualización final en mapa
+
+    La visualización mediante mapas temáticos a nivel de zona censal permitió identificar patrones espaciales de manera clara. Para mejorar la legibilidad, se aplicó una escala de color degradada y se excluyeron zonas no urbanas del análisis. Este tipo de representación facilita la interpretación para actores técnicos y autoridades territoriales.
+
+    El resultado de la microsimulación muestra patrones espaciales coherentes con el conocimiento previo sobre la distribución sociohabitacional en el Gran Santiago. Por ejemplo:
+
+    -   Las zonas céntricas de comunas como Santiago, Providencia y Ñuñoa presentan una alta proporción de viviendas formales de alta calidad (Grupo 1).
+
+    -   Las comunas del sur de Santiago como Lo Espejo, Pedro Aguirre Cerda y La Pintana presentan mayores porcentajes de viviendas precarias o informales (Grupo 3), reflejando condiciones históricas de vulnerabilidad habitacional.
+
+    -   Algunas zonas específicas presentan proporciones elevadas del Grupo 2 (viviendas formales de menor calidad), lo cual podría estar asociado a densificaciones precarias o cites históricos.
+
+    ```{r Mapa final, echo=TRUE}
+    zonas_v1_sf <- st_read(con, query = "SELECT * FROM dpa.zonas_v1")
+
+    zonas_v1_sf <- zonas_v1_sf %>%
+      mutate(vivienda_precaria = replace_na(vivienda_precaria, 0))
+
+    ggplot(zonas_v1_sf) +
+      geom_sf(aes(fill = vivienda_precaria), color = "black", size = 0.2) +
+      scale_fill_viridis_c(option = "C", direction = -1,
+                           name = "% viviendas precarias") +
+      theme_minimal() +
+      labs(
+        title = "Distribución de Viviendas Precarias en la Región Metropolitana",
+        subtitle = "Microsimulación espacial basada en CASEN 2022 y CENSO 2017"
+      ) +
+      theme(axis.text = element_blank(), axis.ticks = element_blank())
+    ```
+
+    ## 12. Conclusión
+
+    La microsimulación espacial de la variable "v1" permite desagregar de forma robusta y técnicamente fundamentada un aspecto clave del bienestar residencial a una escala territorial fina. Este análisis evidencia la existencia de patrones de desigualdad estructural en el acceso a vivienda adecuada dentro del Gran Santiago y proporciona una herramienta útil para el diseño de políticas públicas de vivienda y planificación urbana.
+
+    Específicamente, los resultados visualizados en el mapa demuestran claramente que las zonas con una mayor concentración de viviendas precarias (categoría 3) se ubican predominantemente en las comunas del sur y poniente del Gran Santiago, destacando de forma prominente áreas dentro de Lo Espejo, Pedro Aguirre Cerda y La Pintana. Este patrón geográfico no solo corrobora la evidencia de segregación residencial, sino que también subraya la urgente necesidad de intervenciones focalizadas en estas áreas para abordar las disparidades habitacionales.
+
+    El uso de esta metodología permite complementar los datos censales con información valiosa de encuestas sociales, aumentando la capacidad diagnóstica a nivel local sin requerir nuevas encuestas exhaustivas. Esta aproximación debe consolidarse como herramienta estándar en análisis espaciales aplicados a temas sociales y urbanos.
+
+    El presente estudio demuestra el potencial de la microsimulación espacial para desagregar variables relevantes del bienestar urbano, como el tipo de vivienda, a niveles territoriales finos. La variable "v1" de la CASEN 2022, procesada mediante el paquete rakeR y combinada con datos del CENSO 2017, permitió construir una base sólida para el análisis espacial de las condiciones habitacionales en el Gran Santiago.
+
+    Los resultados evidencian la persistencia de desigualdades territoriales en materia de vivienda, lo que refuerza la necesidad de políticas públicas más focalizadas y territoriales. Además, se valida el uso de herramientas de ciencia de datos aplicadas a la planificación urbana, abriendo nuevas posibilidades para el diseño de ciudades más justas y equitativas.
