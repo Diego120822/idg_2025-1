@@ -15,7 +15,7 @@ Este análisis busca desagregar espacialmente la variable “tipo de vivienda”
 
 En esta sección, se cargan todas las librerías de R necesarias para el análisis (manejo de datos, manipulación espacial, graficación y el paquete de microsimulación rakeR). Además, se establece la conexión a una base de datos PostgreSQL donde se almacenan datos censales y espaciales.
 
-```{r Librerias, echo=FALSE}
+```{r Librerias, echo=TRUE, message=FALSE, warning=FALSE}
 # INSTALAR TODAS LAS LIBRERIAS SOLO 1 VEZ
 # =============================================================================
 # Estos paquetes permiten conexión a BD, manejo de geometrías y visualización
@@ -31,7 +31,7 @@ library(data.table)
 library(viridis) # Para las paletas de color viridis en ggplot
 library(dplyr)   # Para manipulación de datos
 library(tidyr)   # Para la función replace_na
-
+library(here)
 # Configurar parámetros de conexión a la base de datos
 db_host     = "localhost"
 db_port     = 5432
@@ -203,7 +203,7 @@ Se utilizó el paquete rakeR en R para aplicar un procedimiento de microsimulaci
 
 -   Visualización mediante mapas temáticos generados con ggplot2 y sf.
 
-    ```{r Diagnóstico de cobertura entre CASEN y CENSO, echo=FALSE}
+    ```{r Diagnóstico de cobertura entre CASEN y CENSO, echo=TRUE, message=FALSE, warning=FALSE}
     inds_list <- split(casen, casen$Comuna)
     cons_censo_list <- split(cons_censo_df, cons_censo_df$COMUNA)
 
@@ -306,7 +306,7 @@ Se utilizó el paquete rakeR en R para aplicar un procedimiento de microsimulaci
 
     ## 9. Cálculo de porcentaje de Viviendas Precarias por GEOCODIGO
 
-    ```{r Porcentaje de Viviendas Precarias, echo=FALSE}
+    ```{r Porcentaje de Viviendas Precarias, echo=TRUE}
     zonas_v1 <- sim_df %>%
       filter(!is.na(v1)) %>%
       group_by(GEOCODIGO) %>%
@@ -316,7 +316,7 @@ Se utilizó el paquete rakeR en R para aplicar un procedimiento de microsimulaci
 
     ## 10. Exportar base de datos y unión espacial
 
-    ```{r}
+    ```{r echo=TRUE, message=FALSE, warning=FALSE}
     dbExecute(con, "DROP TABLE IF EXISTS dpa.tmp_v1_rm")
     dbWriteTable(con, Id(schema = "dpa", table = "tmp_v1_rm"), zonas_v1, overwrite = TRUE)
 
