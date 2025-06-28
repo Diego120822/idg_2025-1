@@ -1,6 +1,5 @@
 # ============================================================================
 # 1. CARGA DE LIBRERÍAS
-install.packages("GGally", "entropy", "vegan")
 # ============================================================================
 library(tidyverse)
 library(sf)
@@ -12,9 +11,9 @@ library(DBI)
 library(RPostgres)
 library(GGally)    # Para ggpairs
 library(entropy)   # Para el índice de Shannon
-library(vegan)     # Alternativa para el índice de Shannon
-library(tibble)
-library(tidyr)
+library(vegan)     # Alternativa para el índice de Shannon (aunque entropy ya sirve)
+library(tibble)    # Para crear tibbles, útil para las etiquetas de clusters
+library(tidyr)     # Para pivot_wider
 
 # ============================================================================
 # 2. CONEXIÓN A LA BASE DE DATOS
@@ -58,8 +57,9 @@ df_clusters <- df_ingreso %>%
   filter(!is.na(mediana_ingreso) & !is.na(vivienda_precaria))
 
 # ============================================================================
-# 4. EXPLORACIÓN DE DATOS
+# 4. EXPLORACIÓN DE DATOS (Ajustes para mejor visualización)
 # ============================================================================
+
 # Calcular el porcentaje de zonas con 0% de vivienda precaria
 porcentaje_ceros_vivienda_precaria <- mean(df_clusters$vivienda_precaria == 0, na.rm = TRUE) * 100
 
@@ -73,11 +73,9 @@ ggplot(df_clusters %>% filter(vivienda_precaria > 0)) +
     x = "% viviendas precarias",
     y = "Frecuencia"
   ) +
-  # === CORRECCIÓN AQUÍ: Asegurarse de que annotate es una capa directa ===
-  annotate("text", x = Inf, y = Inf, # x=Inf, y=Inf coloca el texto en la esquina superior derecha
+  annotate("text", x = Inf, y = Inf,
            label = paste0("Nota: ", round(porcentaje_ceros_vivienda_precaria, 2), "% de las zonas tienen 0% de viviendas precarias."),
-           hjust = 1.05, vjust = 1.5, # Ajusta posición horizontal y vertical
-           size = 3.5, color = "gray30")
+           hjust = 1.05, vjust = 1.5, size = 3.5, color = "gray30")
 
 # === Histograma de mediana_ingreso ===
 ggplot(df_clusters) +
@@ -96,53 +94,44 @@ vars_scaled <- df_clusters %>%
   select(vivienda_precaria, mediana_ingreso) %>%
   scale()
 
-# Método del codo para determinar número óptimo de clusters
+# Método del codo para determinar número óptimo de clusters (Confirmado en 4)
 fviz_nbclust(vars_scaled, kmeans, method = "wss") +
   labs(title = "Método del Codo para Vivienda Precaria e Ingreso", x = "Número de Clusters", y = "WSS") +
   theme_minimal()
 
 # ============================================================================
-# 6. APLICAR K-MEANS Y ETIQUETADO
+# 6. APLICAR K-MEANS Y ETIQUETADO (Ajuste para etiquetas descriptivas)
 # ============================================================================
 set.seed(123)
-# Ajusta 'centers' si el método del codo sugiere un número diferente
+# Se ajusta 'centers' a 4 según lo obtenido en el método del codo
 km <- kmeans(vars_scaled, centers = 4, nstart = 25)
 df_clusters$cluster <- as.factor(km$cluster)
 
 # Etiquetar los clusters de forma más descriptiva
+# ESTAS SON LAS ETIQUETAS BASADAS EN LOS PROMEDIOS QUE VIMOS EN LA TABLA
+cluster_labels_df <- tibble(
+  cluster = factor(c(1, 2, 3, 4)), # Asegúrate que coincidan con los IDs de tus clusters
+  etiqueta_descriptiva = c(
+    "1. Ingreso Medio-Bajo - Sin Precariedad",
+    "2. Ingreso Alto - Muy Baja Precariedad",
+    "3. Alta Precariedad - Ingreso Medio-Bajo",
+    "4. Ingreso Muy Alto - Sin Precariedad"
+  )
+)
+
+# Unir estas etiquetas al dataframe principal para que ggplot las use en el mapa
+df_clusters <- df_clusters %>%
+  left_join(cluster_labels_df, by = "cluster")
+
+# Resumen de los clusters para confirmación (Punto 11 en el código original)
 cluster_summary <- df_clusters %>%
   group_by(cluster) %>%
   summarise(
-    media_vivienda_precaria = mean(vivienda_precaria, na.rm = TRUE),
-    media_ingreso = mean(mediana_ingreso, na.rm = TRUE),
-    n = n()
+    promedio_vivienda_precaria = mean(vivienda_precaria, na.rm = TRUE),
+    promedio_ingreso = mean(mediana_ingreso, na.rm = TRUE),
+    n_zonas = n()
   ) %>%
-  arrange(desc(media_vivienda_precaria), desc(media_ingreso)) # Ordenar para asignar etiquetas lógicas
-
-# Aquí puedes ajustar las etiquetas según los promedios resultantes de tus clusters
-# Es un paso manual que requiere revisar la 'cluster_summary' una vez ejecutado
-# Ejemplo de asignación de etiquetas (ajustar según tus datos):
-# Etiqueta 1: Alta precariedad, Bajo ingreso
-# Etiqueta 2: Media precariedad, Medio ingreso
-# Etiqueta 3: Baja precariedad, Alto ingreso
-# Etiqueta 4: Mixto (ej. alta precariedad, alto ingreso - si existe)
-
-# Por simplicidad, por ahora mantendremos las etiquetas por cluster_id,
-# pero se recomienda una revisión manual para una mejor interpretación.
-# Por ejemplo, si tienes 4 clusters, podrías asignarlas así:
-# cluster_summary %>%
-#   mutate(etiqueta = case_when(
-#     cluster == "1" ~ "Baja precariedad, Alto ingreso",
-#     cluster == "2" ~ "Media precariedad, Medio ingreso",
-#     cluster == "3" ~ "Alta precariedad, Bajo ingreso",
-#     cluster == "4" ~ "Transición / Mixto",
-#     TRUE ~ as.character(cluster) # Por si acaso
-#   ))
-
-# Para este ejemplo, simplemente uniremos el resumen de vuelta al df_clusters
-df_clusters <- df_clusters %>%
-  left_join(cluster_summary %>% select(cluster, media_vivienda_precaria, media_ingreso), by = "cluster")
-
+  arrange(promedio_vivienda_precaria) # Ordenar para una mejor interpretación
 
 # ============================================================================
 # 7. CARGA Y UNIÓN DE ZONAS CENSALES Y COMUNAS
@@ -154,7 +143,7 @@ WHERE nom_provin = 'SANTIAGO' AND urbano = 1;
 "
 sf_zonas <- st_read(con, query = sql_geom)
 
-# Unir los datos de clusters con la geometría espacial
+# Unir los datos de clusters (con etiquetas descriptivas) con la geometría espacial
 sf_mapa <- merge(sf_zonas, df_clusters, by = "geocodigo")
 
 sql_comunas <- "
@@ -166,22 +155,23 @@ sf_comunas <- st_read(con, query = sql_comunas)
 bbox <- st_bbox(sf_mapa) # Usar el bbox de las zonas para el mapa principal
 
 # ============================================================================
-# 8. GRÁFICOS DE DISTRIBUCIÓN POR VARIABLES
+# 8. GRÁFICOS DE DISTRIBUCIÓN POR VARIABLES (Ajustado con Jitter y Centros)
 # ============================================================================
-# Calcular estadísticas de los clusters para una mejor comprensión visual
+# Calcular estadísticas de los clusters para una mejor comprensión visual de los centros
 cluster_summary_plot <- df_clusters %>%
   group_by(cluster) %>%
   summarise(
     avg_vivienda_precaria = mean(vivienda_precaria, na.rm = TRUE),
-    avg_mediana_ingreso = mean(mediana_ingreso, na.rm = TRUE)
+    avg_mediana_ingreso = mean(mediana_ingreso, na.rm = TRUE),
+    etiqueta_descriptiva = first(etiqueta_descriptiva) # Para tener las etiquetas en el summary
   )
 
 # Gráfico mejorado de Vivienda Precaria vs Ingreso (color por cluster)
-# Usamos position_jitter para dispersar los puntos en x=0
 ggplot(df_clusters, aes(x = vivienda_precaria, y = mediana_ingreso, color = cluster)) +
   geom_point(position = position_jitter(width = 0.05, height = 0), size = 2, alpha = 0.6) +
+  # Añadir puntos medios de los clusters para ver el "centro" de cada grupo
   geom_point(data = cluster_summary_plot,
-             aes(x = avg_vivienda_precaria, y = avg_mediana_ingreso),
+             aes(x = avg_vivienda_precaria, y = avg_mediana_ingreso, color = NULL), # color=NULL para que el asterisco sea negro por defecto
              size = 6, shape = 8, color = "black", stroke = 1.5,
              inherit.aes = FALSE) +
   labs(
@@ -190,24 +180,24 @@ ggplot(df_clusters, aes(x = vivienda_precaria, y = mediana_ingreso, color = clus
     x = "% Viviendas Precarias (con jitter para valores 0)",
     y = "Mediana de Ingreso per cápita"
   ) +
-  scale_color_brewer(palette = "Set1", name = "Cluster") +
+  scale_color_brewer(palette = "Set1", name = "Cluster") + # Aquí sigue mostrando 1,2,3,4 en la leyenda
   theme_minimal()
 
 # ============================================================================
-# 9. MAPA DE CLUSTERS
+# 9. MAPA DE CLUSTERS (Ajustado para usar etiquetas descriptivas en leyenda)
 # ============================================================================
 ggplot() +
-  geom_sf(data = sf_mapa, aes(fill = cluster), color = NA) +
+  geom_sf(data = sf_mapa, aes(fill = etiqueta_descriptiva), color = NA) + # USAR la nueva columna con etiquetas
   geom_sf(data = sf_comunas, fill = NA, color = "black", size = 0.4) +
   geom_sf_text(data = st_centroid(sf_comunas), aes(label = nom_comuna), size = 2) +
-  scale_fill_brewer(palette = "Set2", name = "Cluster") +
-  labs(title = "Clusters de Vivienda Precaria e Ingreso por Zona Censal",
-       subtitle = "Zonas Censales Urbanas – Gran Santiago") +
+  scale_fill_brewer(palette = "Set2", name = "Tipo de Zona Censal") + # Cambiar el título de la leyenda
+  labs(title = "Tipología de Zonas Censales Urbanas – Gran Santiago",
+       subtitle = "Clusters basados en Vivienda Precaria e Ingreso") +
   coord_sf(xlim = c(bbox["xmin"], bbox["xmax"]), ylim = c(bbox["ymin"], bbox["ymax"]), expand = FALSE) +
   theme_void()
 
 # ============================================================================
-# 10. MATRIZ DE CORRELACIÓN
+# 10. MATRIZ DE CORRELACIÓN (Se mantiene igual)
 # ============================================================================
 df_plot <- df_clusters[, c(
   "vivienda_precaria",
@@ -218,7 +208,7 @@ df_plot <- df_clusters[, c(
 ggpairs(
   df_plot,
   columns = 1:2, # Solo las variables numéricas para la matriz
-  mapping = aes(color = cluster),
+  mapping = aes(color = cluster), # Color por el ID numérico del cluster
   upper = list(continuous = "points"),
   lower = list(continuous = "points"),
   diag = list(continuous = "densityDiag")
@@ -226,16 +216,11 @@ ggpairs(
   labs(title = "Matriz de Relación entre Vivienda Precaria e Ingreso por Cluster")
 
 # ============================================================================
-# 11. PROMEDIO DE LOS CLUSTERS (Para análisis descriptivo)
+# 11. PROMEDIO DE LOS CLUSTERS (Tabla descriptiva)
 # ============================================================================
-df_clusters %>%
-  group_by(cluster) %>%
-  summarise(
-    promedio_vivienda_precaria = mean(vivienda_precaria, na.rm = TRUE),
-    promedio_ingreso = mean(mediana_ingreso, na.rm = TRUE),
-    n_zonas = n()
-  ) %>%
-  arrange(promedio_vivienda_precaria) # Ordenar para una mejor interpretación
+# Ya se calculó en la Sección 6 como 'cluster_summary' para la interpretación
+# Puedes imprimirla aquí si quieres que aparezca en el output de R
+print(cluster_summary)
 
 # ============================================================================
 # 12. ANÁLISIS INTRA-COMUNAL (ÍNDICE DE SHANNON)
@@ -244,21 +229,19 @@ df_clusters %>%
 # Esto ya se hizo en la carga de sf_zonas, por lo que sf_mapa debería tener nom_comuna
 
 # Crear tabla de frecuencia de clusters por comuna
-tabla_shannon <- sf_mapa %>% # Usamos sf_mapa ya que contiene los clusters y nom_comuna
-  st_drop_geometry() %>% # Quitar la geometría para el conteo
-  group_by(nom_comuna, cluster) %>%
+tabla_shannon <- sf_mapa %>%
+  st_drop_geometry() %>%
+  group_by(nom_comuna, cluster) %>% # Usamos el ID numérico del cluster aquí
   summarise(n = n(), .groups = "drop") %>%
   pivot_wider(
-    names_from = cluster,
+    names_from = cluster, # Pivotar por el ID numérico del cluster
     values_from = n,
     values_fill = 0
   )
 
 # Calcular índice de Shannon
-# Asegurarse de que no haya columnas de geometría o ID en la selección para diversity
-# Seleccionamos solo las columnas que representan los conteos de clusters
-cluster_columns <- colnames(tabla_shannon)[!colnames(tabla_shannon) %in% c("nom_comuna")]
-tabla_shannon$shannon <- diversity(tabla_shannon[, cluster_columns], index = "shannon")
+cluster_columns_for_shannon <- colnames(tabla_shannon)[!colnames(tabla_shannon) %in% c("nom_comuna")]
+tabla_shannon$shannon <- diversity(tabla_shannon[, cluster_columns_for_shannon], index = "shannon")
 
 # Unión con geometría comunal
 sf_shannon <- sf_comunas %>%
