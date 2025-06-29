@@ -65,7 +65,7 @@ con = dbConnect(
 )
 ```
 
-# 3. Carga y preparación de datos
+## 2.1. Carga y preparación de datos
 
 A través de consultas SQL específicas, se extraen las variables clave para este estudio: el porcentaje de vivienda_precaria (derivado de la microsimulación del Trabajo 2) y la mediana_ingreso per cápita (variable microsimulada en clase). Ambas series de datos, asociadas a sus respectivos geocodigos de zona censal, son subsiguientemente unificadas en un único dataframe. Durante este proceso de preparación, se realiza un filtrado inicial para asegurar la integridad y consistencia del conjunto final, excluyendo aquellas zonas censales que presenten valores nulos (NAs) en estas variables seleccionadas, lo que garantiza la calidad del insumo para las etapas posteriores del análisis de agrupamiento.
 
@@ -96,7 +96,7 @@ df_clusters <- df_ingreso %>%
   filter(!is.na(mediana_ingreso) & !is.na(vivienda_precaria))
 ```
 
-# 4. Exploración de Datos
+# 3. Exploración de Datos
 
 Esta parte es fundamental para comprender las características inherentes de las variables que serán utilizadas en el proceso de agrupamiento. En esta sección, se presenta un análisis descriptivo centrado en la distribución de la variable de % de viviendas precarias y la mediana de ingreso per cápita a través de histogramas. Este examen visual permite identificar patrones clave como la forma de la distribución (normal, sesgada), la presencia de valores atípicos, y la concentración de datos en ciertos rangos, como la notable acumulación de zonas con 0% de viviendas precarias. Los comentarios asociados a cada gráfico detallarán las observaciones más relevantes, como la asimetría de los datos de ingreso o la particular distribución de la precariedad de vivienda, sentando las bases para el preprocesamiento y la aplicación del algoritmo de clustering.
 
@@ -127,12 +127,43 @@ ggplot(df_clusters) +
     x = "Mediana de Ingreso per cápita",
     y = "Frecuencia"
   )
-
 ```
 
-Después de cada gráfico, añadir un breve comentario textual interpretando lo que se observa.
+### 3.1. Interpretación del gráfico "Distribución de % viviendas precarias (solo zonas \> 0%)"
 
-# 5. Agrupamiento (Clustering)
+La primera imagen muestra un histograma de vivienda_precaria excluyendo las zonas que tienen 0% de viviendas precarias y lo que nos indica es lo siguiente:
+
+-   Gran Concentración de Ceros: La nota en la esquina superior derecha es fundamental: "Nota: 98.46% de las zonas tienen 0% de viviendas precarias". Esto significa que la inmensa mayoría de las zonas censales en tu dataset (casi el 98.5%) no registran viviendas precarias según tu definición o la fuente de datos. Esto es un hallazgo muy importante por sí mismo.
+
+-   Distribución de la "Minoría Precaria": Para el 1.54% restante de las zonas (las que sí tienen precariedad), la distribución de vivienda_precaria es la siguiente:
+
+    -   Existe una alta concentración de zonas con porcentajes muy bajos de viviendas precarias (entre 0% y aproximadamente 0.5%). De hecho, la barra más alta está muy cerca de 0, lo que sugiere que incluso entre las zonas con precariedad, esta suele ser marginal en términos de porcentaje.
+
+    -   A medida que aumenta el porcentaje de viviendas precarias, la frecuencia de zonas disminuye drásticamente.
+
+    -   Sin embargo, hay algunas zonas dispersas con porcentajes más altos, incluso llegando a valores por encima del 3%. Estas zonas, aunque pocas, representan casos donde la precariedad de vivienda es más significativa. Esto podría indicar focos específicos de precariedad.
+
+-   Discontinuidad / Gaps: Se observan "huecos" en el histograma, donde no hay zonas con ciertos rangos de porcentaje de viviendas precarias. Esto podría deberse a la naturaleza de los datos (tal vez los porcentajes se redondean o se agrupan de alguna manera) o simplemente a que hay muy pocas observaciones en general para esta variable cuando se excluyen los ceros.
+
+En resumen, la precariedad habitacional, según la variable vivienda_precaria, es un fenómeno muy poco extendido en la mayoría de las zonas, pero cuando ocurre, tiende a ser en porcentajes bajos, aunque con casos aislados de mayor intensidad. Esto sugiere que la precariedad es más un problema focalizado que generalizado a nivel de zona censal.
+
+### 3.2. Interpretación del gráfico "Distribución de la Mediana de Ingreso"
+
+La segunda imagen muestra un histograma de la mediana_ingreso per cápita y lo que nos indica esta imagen es:
+
+-   Distribución Asimétrica Positiva (Sesgada a la Derecha): La forma general del histograma es "jorobada" hacia la izquierda y tiene una "cola" larga hacia la derecha. Esto es muy común para variables de ingreso: la mayoría de las zonas tienen ingresos más bajos o moderados, y solo unas pocas zonas tienen ingresos muy altos.
+
+-   Moda Principal: Hay una clara concentración (la "moda" o el pico más alto) de zonas con una mediana de ingreso per cápita en un rango relativamente bajo, probablemente entre 300,000 y 400,000 (pesos chilenos, asumo por el contexto). Esto representa el ingreso más común entre las zonas.
+
+-   Disminución Gradual: A partir de ese pico, la frecuencia de zonas disminuye a medida que la mediana de ingreso aumenta.
+
+-   Outliers o Zonas de Muy Alto Ingreso: Se observa una pequeña cantidad de zonas con medianas de ingreso considerablemente más altas, incluso superando los 1.000.000 y llegando cerca de los 1.500.000. Estas son las "colas" de la distribución y representan las zonas censales con mayor concentración de ingresos altos.
+
+-   Posibles Bimodalidades o Grupos Discretos: Hay un pequeño "bache" o separación alrededor de los 700.000, y luego un pequeño grupo de barras más allá de 1.000.000. Esto podría indicar la presencia de subgrupos de zonas con niveles de ingreso distintos (por ejemplo, zonas de clase media-alta/alta que se distinguen del grueso de las zonas de ingreso medio/bajo).
+
+En resumen, la mayoría de las zonas censales en el Gran Santiago tienen medianas de ingreso per cápita en el rango medio-bajo, pero existe una minoría de zonas con ingresos significativamente más altos, lo que refleja la desigualdad económica y la concentración de riqueza en ciertos sectores de la ciudad.
+
+# 4. Agrupamiento (Clustering)
 
 En esta sección se implementa el algoritmo de agrupamiento para clasificar las zonas censales urbanas de Santiago en grupos homogéneos, basándose en sus características de vivienda_precaria y mediana_ingreso. El proceso comienza con el escalado de las variables, un paso crítico para asegurar que ninguna de ellas domine el cálculo de distancias debido a diferencias en su escala original. Posteriormente, se procede a determinar el número óptimo de clusters (K), utilizando para ello el método del codo. Finalmente, se aplica el algoritmo K-means con el número de grupos establecido, lo que permitirá segmentar el territorio en distintas tipologías socio-residenciales para un análisis más profundo y la posterior interpretación de los patrones espaciales.
 
@@ -143,7 +174,7 @@ vars_scaled <- df_clusters %>%
 
 # Método del codo para determinar número óptimo de clusters (Confirmado en 4)
 fviz_nbclust(vars_scaled, kmeans, method = "wss") +
-  labs(title = "Método del Codo para Vivienda Precaria e Ingreso", x = "Número de Clusters", y = "WSS") +
+  labs(title = "Método del Codo para Vivienda Precaria e Ingreso", x = "Número de Clústers", y = "WSS") +
   theme_minimal()
 # Se aplica K-MEANS y el ajuste para las etiquetas descriptivas
 set.seed(123)
@@ -153,13 +184,25 @@ km <- kmeans(vars_scaled, centers = 4, nstart = 25)
 df_clusters$cluster <- as.factor(km$cluster)
 ```
 
-Comentario textual justificando la elección de K=4 basado en el gráfico del codo.
+El principio del método del codo es buscar el punto en la curva donde la disminución de WSS (la "inercia" o la varianza dentro de los clusters) comienza a ralentizarse significativamente, formando un "codo" en la gráfica. Después de este punto, añadir más clusters no proporciona una mejora sustancial en la compactibilidad de los clusters.
 
-# 6. Caracterización y Etiquetado de los Grupos
+Observando el gráfico:
 
-## 6.1 Promedios de los Clusters
+-   De 1 a 2 clusters: Hay una caída muy pronunciada en el WSS.
 
-```{r}
+-   De 2 a 3 clusters: La caída sigue siendo significativa, aunque menos pronunciada que la anterior.
+
+-   De 3 a 4 clusters: Aquí se produce otra caída notable.
+
+-   A partir de 4 clusters: La curva se vuelve mucho más plana. La disminución en WSS desde 4 a 5, y de 5 a 6, y así sucesivamente, es mucho menos dramática, por ende el "codo" más evidente se encuentra en el punto donde K es 4.
+
+# 5. Caracterización y Etiquetado de los Grupos
+
+## 5.1. Promedios de los Clusters
+
+Esta subsección presenta el resumen estadístico de las características de cada grupo identificado por el algoritmo K-means.
+
+```{r Tabla de promedios de los clusters, echo=TRUE}
 # Resumen de los clusters para confirmación (Punto 11 en el código original)
 cluster_summary <- df_clusters %>%
   group_by(cluster) %>%
@@ -172,7 +215,9 @@ cluster_summary <- df_clusters %>%
 print(cluster_summary) # Para que la tabla se muestre en el output
 ```
 
-## 6.2 Interpretación y Etiquetado Descriptivo
+La siguiente tabla detalla los valores promedio de % de viviendas precarias y mediana de ingreso per cápita para cada uno de los clusters, así como el número total de zonas censales que pertenecen a cada agrupación. Este análisis descriptivo es fundamental para comprender el perfil distintivo de cada cluster y para fundamentar la asignación de etiquetas significativas que reflejen sus particularidades socio-habitacionales.
+
+## 5.2. Interpretación y Etiquetado Descriptivo
 
 El etiquetado de los grupos (clusters) se realizó basándose en el análisis estadístico de sus características promedio en las variables de vivienda_precaria y mediana_ingreso. El algoritmo K-means agrupa las zonas que son similares entre sí en estas dos dimensiones. Una vez que se obtienen los clusters, se calcula la media de cada variable para cada grupo. Estas medias son las que permiten "entender" qué representa cada clúster y, por lo tanto, asignarle una etiqueta descriptiva.
 
@@ -211,11 +256,13 @@ df_clusters <- df_clusters %>%
   left_join(cluster_labels_df, by = "cluster")
 ```
 
-# 7. Visualización de Resultados y Análisis Espacial
+# 6. Visualización de Resultados y Análisis Espacial
 
-## 7.1 Carga de Geometrías y Unión de Datos
+Esta sección es fundamental para comprender las tipologías de zonas censales identificadas y su distribución geográfica en el Gran Santiago. A través de una serie de visualizaciones, se explorará la relación entre las variables utilizadas para el clustering, se mapearán los grupos resultantes a nivel espacial, y se analizará la variabilidad de estas tipologías dentro de las comunas, ofreciendo una perspectiva integral sobre la estructura socio-espacial de la ciudad.
 
-```{r}
+## 6.1. Carga de Geometrías y Unión de Datos
+
+```{r Carga y preparación de los datos geográficos, echo=FALSE}
 #CARGA Y UNIÓN DE ZONAS CENSALES Y COMUNAS
 sql_geom <- "
 SELECT geocodigo::double precision AS geocodigo, geom, nom_comuna
@@ -236,9 +283,9 @@ sf_comunas <- st_read(con, query = sql_comunas)
 bbox <- st_bbox(sf_mapa) # Usar el bbox de las zonas para el mapa principal
 ```
 
-## 7.2 Gráfico de Dispersión de Clusters
+## 6.2. Gráfico de Dispersión de Clusters
 
-```{r}
+```{r Gráfico de dispersión de los clusters, echo=TRUE}
 # Calcular estadísticas de los clusters para una mejor comprensión visual de los centros
 cluster_summary_plot <- df_clusters %>%
   group_by(cluster) %>%
@@ -264,4 +311,230 @@ ggplot(df_clusters, aes(x = vivienda_precaria, y = mediana_ingreso, color = clus
   ) +
   scale_color_brewer(palette = "Set1", name = "Cluster") + # Aquí sigue mostrando 1,2,3,4 en la leyenda
   theme_minimal()
+```
+
+El gráfico muestra los puntos de datos (zonas censales) coloreados según el cluster al que pertenecen, y los asteriscos negros representan el centro promedio (la media) de vivienda_precaria y mediana_ingreso para cada cluster.
+
+Lo que se puede observar nos indica que:
+
+1.  La concentración en vivienda_precaria = 0:
+
+    -   Como ya había anticipado, la vasta mayoría de los puntos se agrupan en el eje Y, donde el % de viviendas precarias es 0 (o muy cercano a 0, gracias al jitter).
+
+    -   Dentro de esta "columna" en x = 0, podemos distinguir claramente la separación de tres clusters principales (1, 2 y 4) basados en su mediana de Ingreso per cápita. Esto es lógico, ya que la precariedad es 0 para ellos, y el algoritmo de K-Means busca la mejor separación posible con las variables que tiene.
+
+2.  Los Clusters en vivienda_precaria = 0:
+
+    -   Cluster 1 (Rojo): Parece ser el cluster de "Ingreso Bajo" entre las zonas sin precariedad o con muy baja precariedad. Su centro promedio está en la parte inferior de la columna x=0.
+
+    -   Cluster 4 (Morado): Representa el cluster de "Ingreso Medio" entre las zonas sin o con muy baja precariedad. Su centro promedio está en el medio de la columna x=0.
+
+    -   Cluster 2 (Azul): Corresponde al cluster de "Ingreso Alto" entre las zonas sin o con muy baja precariedad. Su centro promedio se ubica en la parte superior de la columna x=0.
+
+3.  El Cluster con vivienda precaria mayor a 0:
+
+    -   Cluster 3 (Verde): Este es el cluster más interesante y el que se distribuye a lo largo del eje X, mostrando porcentajes de vivienda_precaria mayores a 0. Su centro promedio también se ubica claramente en un valor de vivienda_precaria significativo (alrededor del 2.5-3%).
+
+    -   Se observa que los puntos de este Cluster 3 tienen una mediana_ingreso generalmente más baja que los clusters de "Ingreso Medio" y "Ingreso Alto" (Clusters 4 y 2), y se solapan más con el Cluster 1 (Ingreso Bajo). Esto sugiere una posible relación inversa: a mayor precariedad, menor ingreso.
+
+Basandonos en la visualización, podríamos empezar a etiquetar los clusters de la siguiente manera:
+
+-   Cluster 1 (Rojo): Zonas de Bajo Ingreso y Muy Baja/Nula Precariedad de Vivienda.
+
+-   Cluster 2 (Azul): Zonas de Alto Ingreso y Muy Baja/Nula Precariedad de Vivienda.
+
+-   Cluster 3 (Verde): Zonas con Alguna Precariedad de Vivienda y Mediana de Ingreso Variada (pero generalmente no alta). Podría ser un cluster de "Precariedad moderada a alta".
+
+-   Cluster 4 (Morado): Zonas de Medio Ingreso y Muy Baja/Nula Precariedad de Vivienda.
+
+## 6.3. Matriz de Relación entre Variables por Cluster
+
+Esta subsección presenta una matriz de gráficos de dispersión y densidades bivariadas, construida a partir de las variables vivienda_precaria y mediana_ingreso. La visualización está coloreada según el cluster al que pertenece cada zona censal, permitiendo una exploración detallada de las relaciones entre estas variables dentro de cada grupo. Esto facilitará la observación de cómo se distribuyen y se interrelacionan las características de ingreso y precariedad habitacional en el espacio multidimensional definido por los clusters.
+
+```{r Matriz de correlación (o relación) específica de los clusters, echo=FALSE}
+df_plot <- df_clusters[, c(
+  "vivienda_precaria",
+  "mediana_ingreso",
+  "cluster"
+)]
+
+ggpairs(
+  df_plot,
+  columns = 1:2, # Solo las variables numéricas para la matriz
+  mapping = aes(color = cluster), # Color por el ID numérico del cluster
+  upper = list(continuous = "points"),
+  lower = list(continuous = "points"),
+  diag = list(continuous = "densityDiag")
+) +
+  labs(title = "Matriz de Relación entre Vivienda Precaria e Ingreso por Cluster")
+```
+
+La matriz de relación bivariada, con los puntos coloreados por cluster, ofrece una visión consolidada de la distribución de las zonas censales en función de la vivienda_precaria y la mediana_ingreso, y cómo los clusters se segregan en este espacio.
+
+-   Panel de Dispersión (inferior izquierda / superior derecha): Confirma visualmente la separación de los clusters que ya se observó en el gráfico de dispersión anterior. Se puede apreciar claramente cómo los Clusters 1, 2 y 4 se agrupan en el eje de vivienda_precaria cercana a cero, diferenciándose principalmente por su nivel de ingreso. El Clúster 3, por su parte, se distingue por presentar valores más elevados de vivienda_precaria, con un rango de ingresos que se solapa predominantemente con el Clúster 1.
+
+-   Paneles de Densidad (diagonal): Las densidades coloreadas por cluster en la diagonal (densityDiag) son particularmente reveladoras. Permiten observar la distribución de cada variable por separado para cada cluster. Por ejemplo, en la densidad de vivienda_precaria, se ve cómo la mayoría de los clusters (1, 2, 4) tienen su densidad concentrada en cero, mientras que el Clúster 3 muestra una densidad desplazada hacia valores positivos. De manera similar, en la densidad de mediana_ingreso, se visualiza claramente cómo cada cluster ocupa un rango específico, validando las etiquetas de ingreso que se asignaron.
+
+En síntesis, esta matriz refuerza la comprensión de las tipologías de clusters, mostrando de forma compacta las relaciones internas y las diferencias entre grupos en las dos dimensiones clave del análisis.
+
+## 6.4. Mapa de Clusters por Zona Censal
+
+```{r Mapa de clusters por zona censal, echo=TRUE, warning=FALSE}
+ggplot() +
+  geom_sf(data = sf_mapa, aes(fill = etiqueta_descriptiva), color = NA) +
+  geom_sf(data = sf_comunas, fill = NA, color = "black", size = 0.4) +
+  geom_sf_text(data = st_centroid(sf_comunas), aes(label = nom_comuna), size = 2) +
+  scale_fill_brewer(palette = "Set2", name = "Tipo de Zona Censal") + 
+  labs(title = "Distribución Espacial de Tipologías de Zonas Censales Urbanas en el Gran Santiago",
+       subtitle = "Clusters basados en Vivienda Precaria e Ingreso") +
+  coord_sf(xlim = c(bbox["xmin"], bbox["xmax"]), ylim = c(bbox["ymin"], bbox["ymax"]), expand = FALSE) +
+  theme_void()
+```
+
+El clustering ha logrado identificar diferentes tipos de zonas censales basadas en vivienda_precaria e ingreso:
+
+1.  La mayoría zonas con ingresos medios-bajos y prácticamente sin precariedad habitacional.
+
+2.  Zonas Acomodadas: Zonas con ingresos altos y muy altos, y sin precariedad.
+
+3.  Zonas de Preocupación: Un pequeño grupo de zonas con alta precariedad habitacional y niveles de ingreso que son similares a las zonas más grandes y de menores ingresos (Cluster 1). Esto resalta un problema focalizado de precariedad que no está necesariamente ligado a los ingresos más bajos de la ciudad, sino a un nivel de ingreso medio-bajo donde, sin embargo, la precariedad de la vivienda es una realidad.
+
+## 6.5. Análisis de la Distribución Espacial
+
+-   Segregación Socio-Espacial: Los resultados del análisis de clusters revelan una clara estructura de segregación socio-espacial en las zonas urbanas de la provincia de Santiago. La marcada diferenciación entre los clusters basados en ingreso y precariedad de vivienda pone de manifiesto la existencia de 'ciudades' dentro de la ciudad. Por un lado, los Clusters 2 ('Ingreso Alto - Muy Baja Precariedad') y 4 ('Ingreso Muy Alto - Sin Precariedad') se corresponden con áreas de elevado bienestar y nula precariedad habitacional, probablemente concentradas en el sector oriente de la ciudad. Por otro lado, el Clúster 1 ('Ingreso Medio-Bajo - Sin Precariedad'), que abarca la gran mayoría de las zonas censales (aproximadamente el 85% de ellas), representa los vastos sectores de la ciudad con ingresos más modestos y condiciones de vivienda adecuadas, ubicados predominantemente en el poniente, centro y sur. Esta distribución espacial de la riqueza y las condiciones habitacionales subraya la fragmentación urbana y la disparidad de oportunidades entre diferentes territorios.
+
+-   Focos de Precariedad y sus Implicaciones: Un hallazgo crítico es la identificación del Clúster 3 ('Alta Precariedad - Ingreso Medio-Bajo'), un grupo pequeño pero significativo de 16 zonas censales. Estas zonas se distinguen por un alto porcentaje de viviendas precarias (2.56% en promedio), a pesar de que sus medianas de ingreso son similares a las del Clúster 1 (Ingreso Medio-Bajo). Esto indica que la precariedad de vivienda no es un problema exclusivo de las zonas de más bajos ingresos, sino que puede manifestarse como focos específicos en contextos de ingresos moderados. La baja cantidad de zonas en este clúster sugiere que la precariedad habitacional es un problema localizado y no generalizado a nivel de zona censal en el Gran Santiago, pero su existencia demanda atención focalizada. Identificar estas áreas es crucial para el diseño de políticas públicas que apunten a mejorar las condiciones habitacionales, reconociendo que no siempre coinciden con los territorios de menor ingreso absoluto, sino con situaciones de vulnerabilidad específica de la vivienda.
+
+# 7. Variabilidad Intra-Comunal (Índice de Shannon)
+
+Esta sección profundiza en el análisis espacial, yendo más allá de la distribución de los clusters para examinar la diversidad interna de las comunas del Gran Santiago. Para ello, se utiliza el Índice de Shannon, una métrica que permite cuantificar la heterogeneidad de los clusters dentro de cada unidad administrativa. Los resultados de este análisis, presentados a través de un mapa temático, serán cruciales para entender qué comunas son más homogéneas en términos de sus tipologías socio-residenciales y cuáles exhiben una mayor mezcla de grupos, lo que tiene implicaciones directas para la planificación y la formulación de políticas públicas a escala local.
+
+## 7.1. Cálculo y Mapa del Índice de Shannon
+
+Se detalla la metodología de cálculo del Índice de Shannon aplicado a los clusters previamente definidos. El índice se computa para cada comuna del Gran Santiago, reflejando la distribución proporcional de los diferentes tipos de clusters dentro de sus límites geográficos. Posteriormente, se visualizan estos resultados mediante un mapa comunal, donde la escala de color indicará el nivel de diversidad de clusters, permitiendo identificar rápidamente las áreas con mayor o menor heterogeneidad en sus patrones socio-residenciales.
+
+```{r Cálculo y mapa índice de Shannon, echo=TRUE}
+# Crear tabla de frecuencia de clusters por comuna
+tabla_shannon <- sf_mapa %>%
+  st_drop_geometry() %>%
+  group_by(nom_comuna, cluster) %>% # Usamos el ID numérico del cluster aquí
+  summarise(n = n(), .groups = "drop") %>%
+  pivot_wider(
+    names_from = cluster, # Pivotar por el ID numérico del cluster
+    values_from = n,
+    values_fill = 0
+  )
+
+# Calcular índice de Shannon
+cluster_columns_for_shannon <- colnames(tabla_shannon)[!colnames(tabla_shannon) %in% c("nom_comuna")]
+tabla_shannon$shannon <- diversity(tabla_shannon[, cluster_columns_for_shannon], index = "shannon")
+
+# Unión con geometría comunal
+sf_shannon <- sf_comunas %>%
+  left_join(tabla_shannon, by = "nom_comuna")
+
+# Mapa de variabilidad intra-comunal
+ggplot(sf_shannon) +
+  geom_sf(aes(fill = shannon), color = "grey20", size = 0.3) +
+  geom_sf_text(aes(label = nom_comuna), size = 1.5, color = "black") +
+  scale_fill_viridis_c(option = "plasma", name = "Índice de Shannon") +
+  labs(
+    title = "Variabilidad intra-comunal de Clusters",
+    subtitle = "Índice de Shannon por Comuna (Vivienda Precaria e Ingreso)"
+  ) +
+  theme_minimal()
+```
+
+## 7.2. Interpretación de los resultados y Utilidad territorial
+
+El Índice de Shannon mide la diversidad, en este caso, la diversidad de los tipos de clusters (basados en precariedad de vivienda e ingreso) dentro de cada comuna. Este indicador es fundamental para el análisis territorial, ya que permite comprender la complejidad interna de cada unidad administrativa. Su utilidad se manifiesta en varios puntos clave:
+
+-   Identificación de Heterogeneidad/Homogeneidad Comunal: Permite clasificar las comunas según su complejidad interna, diferenciando aquellas con una mezcla variada de tipologías de zonas de las que son más uniformes.
+
+-   Diseño de Políticas Públicas: Una comuna con un Índice de Shannon alto requiere políticas más segmentadas y diversas, dado que debe atender a múltiples realidades socioeconómicas y habitacionales dentro de sus límites. Por el contrario, una comuna con un Shannon bajo podría beneficiarse de políticas más uniformes, siempre considerando las especificidades de su clúster predominante.
+
+-   Análisis de Desigualdad Urbana: Complementa el mapa de clusters al mostrar cómo la segregación no solo se da entre comunas, sino también dentro de ellas. Las comunas con alta diversidad pueden contener "bolsillos" de distintas realidades, lo que es relevante para la planificación urbana y la asignación de recursos.
+
+-   Priorización de Intervenciones: Ayuda a identificar comunas donde la mezcla de clusters es tal que podría haber una mayor fricción social o donde la diversidad de necesidades exige un enfoque integral y diferenciad
+
+Basándonos en el mapa de "Variabilidad intra-comunal de Clusters", por un lado, tenemos que el significado de los valores altos del Índice de Shannon (Colores Amarillos/Naranjas) nos indica una mayor diversidad de clusters dentro de esa comuna. Esto significa que la comuna alberga una mezcla más heterogénea de diferentes tipos de zonas socioeconómicas y habitacionales. Por ejemplo, Lo Barnechea, Las Condes y La Reina muestran los índices más altos. Esto implica que, a pesar de su reputación de alto ingreso, estas comunas contienen una variedad de realidades (zonas de ingreso muy alto, alto, medio, y posiblemente algunas de precariedad significativa). No son homogéneas en su interior, sino que reflejan una compleja convivencia de distintos perfiles territoriales.
+
+Por otro lado, el significado de los valores Bajos del Índice de Shannon (Colores Morados/Azules Oscuros) nos indican una menor diversidad de clusters dentro de esa comuna. Estas comunas son más homogéneas en su composición de zonas censales. Las comunas del poniente y sur de Santiago (ej. Pudahuel, Maipú, San Bernardo, Lo Espejo) presentan índices bajos. Esto sugiere que están predominantemente compuestas por uno o dos tipos de clusters, siendo el Clúster 1 ('Ingreso Medio-Bajo - Sin Precariedad') el más probable dominante, lo que resalta una uniformidad socioeconómica a gran escala en estas áreas.
+
+Algunas comunas centrales como Santiago, Providencia, Ñuñoa, e incluso algunas del sector poniente como Estación Central o Cerrillos, muestran tonos intermedios de púrpura. Esto indica una diversidad moderada, con una mezcla más balanceada de los diferentes tipos de clusters, aunque no tan extrema como en las comunas del sector oriente. Es lógico, ya que estas comunas históricamente han albergado una mayor mezcla socioeconómica.
+
+## 7.3. Conclusiones del mapa
+
+-   Comunas con Alta Heterogeneidad (Amarillo/Naranja):
+
+    -   Lo Barnechea: Destaca con un amarillo vibrante, lo que indica una muy alta diversidad de clusters. Aunque tradicionalmente asociada a altos ingresos, esto sugiere que Lo Barnechea tiene no solo zonas de muy alto ingreso, sino también una mezcla significativa de otros tipos de zonas, incluyendo posiblemente algunas con precariedad o de ingresos medios/bajos (a menudo en sus sectores más marginales o rurales/pre-cordilleranos).
+
+    -   Las Condes y La Reina: También muestran tonos amarillos/naranjas, indicando una alta diversidad. Al igual que Lo Barnechea, estas comunas, si bien conocidas por sus altos ingresos, también presentan una mezcla de realidades, quizá con sectores de ingresos más variados o incluso con presencia del Cluster 3 (precariedad significativa).
+
+-   Comunas con Baja Heterogeneidad (Morado/Azul Oscuro):
+
+    -   Un gran bloque de comunas del poniente y sur de Santiago: Comunas como Pudahuel, Maipú, San Bernardo, Lo Espejo (tu ubicación actual), El Bosque, San Miguel, San Joaquín, Peñalolén, etc., muestran tonos morados o azules oscuros. Esto sugiere que estas comunas son más homogéneas en su composición de zonas censales.
+
+        -   Dado que el Cluster 1 ("Ingreso Medio-Bajo y Sin Precariedad") es el más grande (2330 zonas), es muy probable que estas comunas estén predominantemente compuestas por zonas de este tipo. Es decir, la mayoría de sus zonas tienen ingresos medios-bajos y no registran viviendas precarias.
+
+        -   Podría haber presencia de los otros clusters, pero no en una proporción significativa como para aumentar el índice de Shannon.
+
+-   Comunas Intermedias (Tonos Púrpura):
+
+    -   Algunas comunas centrales como Santiago, Providencia, Ñuñoa, e incluso algunas del sector poniente como Estación Central o Cerrillos, muestran tonos intermedios de púrpura. Esto indica una diversidad moderada. En estas comunas, hay una mezcla más balanceada de los diferentes tipos de clusters, pero no tan extrema como en las comunas del sector oriente. Es lógico, ya que estas comunas históricamente han albergado una mayor mezcla socioeconómica.
+
+<!-- -->
+
+-   Desigualdad Socio-Espacial: El mapa visualiza la fuerte segregación socio-espacial de Santiago. Las comunas del "cono de altos ingresos" (Lo Barnechea, Las Condes, La Reina) son las más diversas internamente, lo que puede ser contraintuitivo pero se explica por la presencia de grandes extensiones de terreno con distintas realidades socioeconómicas (incluyendo campamentos o poblaciones de bajos ingresos adyacentes a barrios de alto valor).
+
+-   Homogeneidad de los Sectores Populares: Las comunas del sur y poniente, a pesar de su gran tamaño poblacional, tienden a ser más homogéneas en su estructura socioeconómica a nivel de zona censal, dominadas por el tipo de zona de ingreso medio-bajo sin precariedad.
+
+-   Focos de Precariedad: El Cluster 3 (alta precariedad) es pequeño (16 zonas). Las comunas que muestran alguna diversidad (colores más claros) podrían ser las que contienen esas pocas zonas con precariedad significativa. Es decir, las comunas con mayor Shannon son las más propensas a tener la mezcla de todos los clusters, incluido el de "precariedad significativa".
+
+Este mapa es una poderosa herramienta para identificar dónde se concentran las diferentes realidades socioeconómicas y dónde hay mayor variabilidad dentro de las unidades administrativas de la ciudad.
+
+# 8. Reflexión final y valor agregado
+
+El análisis de clusters realizado en este trabajo, junto con la combinación de la variable de vivienda_precaria (microsimulada en el Trabajo 2) y la mediana_ingreso per cápita, representa un avance sustancial en la comprensión de la desigualdad socio-espacial en el Gran Santiago.
+
+Mientras que el Trabajo 2, con la microsimulación de la variable de vivienda, ya mostraba una importante heterogeneidad espacial y una clara concentración de viviendas precarias o informales en comunas del sur y poniente (como Lo Espejo, Pedro Aguirre Cerda y La Pintana) y sectores de Cerro Navia, los resultados de este nuevo trabajo son altamente coherentes con esas observaciones, confirmando la existencia de focos de precariedad y zonas de alto ingreso sin precariedad habitacional en los sectores orientales.
+
+Sin embargo, la principal fortaleza y el valor agregado crucial de este Trabajo 3 reside en su capacidad para trascender la descripción univariable y generar tipologías territoriales complejas. Si bien el Trabajo 2 permitió identificar dónde se localizaba la precariedad de vivienda y dónde se concentraban los altos ingresos, el análisis de clusters va más allá al identificar perfiles de zonas censales que combinan ambas dimensiones de manera simultánea. Un avance clave, por ejemplo, es la distinción entre el Clúster 1 ('Ingreso Medio-Bajo - Sin Precariedad') y el Clúster 3 ('Alta Precariedad - Ingreso Medio-Bajo'). Ambos comparten niveles de ingreso similares, pero el Clúster 3 se diferencia crucialmente por la presencia de precariedad. Esto revela que la problemática de la vivienda precaria no es un fenómeno exclusivo de las zonas de más bajos ingresos absolutos, sino que puede presentarse en contextos de ingresos medios-bajos donde la calidad de la vivienda es el factor determinante de vulnerabilidad.
+
+Asimismo, la identificación de múltiples clusters de "no precariedad" pero con distintos niveles de ingreso (Clusters 1, 2 y 4) permite una visión más matizada de las zonas urbanas, distinguiendo entre áreas de diferentes estratos socioeconómicos que, sin embargo, comparten la característica de no presentar precariedad habitacional significativa. Este análisis de clustering ofrece, por lo tanto, una visión más integral y multidimensional de la desigualdad, superando una simple correlación lineal entre ingreso y vivienda al identificar grupos de zonas con perfiles combinados y complejos.
+
+El conocimiento de la distribución de estos grupos es de inmensa utilidad para la formulación de políticas públicas y la planificación territorial:
+
+-   Focalización de Políticas Públicas: Permite una focalización mucho más precisa. Por ejemplo, el Clúster 3 (Alta Precariedad - Ingreso Medio-Bajo) se convierte en un objetivo claro para programas de mejoramiento de vivienda, subsidios o intervenciones barriales, ya que son zonas con una necesidad crítica de vivienda que quizás no serían identificadas si solo se usara un umbral de ingreso bajo.
+
+-   Asignación de Recursos: Facilita una asignación más eficiente y equitativa de recursos, dirigiendo las inversiones directamente donde la combinación de precariedad y nivel de ingreso demanda una intervención específica.
+
+-   Comprensión de la Estructura Urbana: Proporciona a los planificadores urbanos una herramienta para entender la heterogeneidad y homogeneidad interna de las comunas. Las comunas con alta variabilidad de clusters (reflejada en el Índice de Shannon) requerirán un enfoque de planificación y gestión más diversificado y contextualizado.
+
+-   Monitoreo y Evaluación: Establece una línea base para monitorear los efectos de las intervenciones a lo largo del tiempo y evaluar su impacto en la reducción de la precariedad y la mejora de la calidad de vida en los grupos más vulnerables.
+
+En síntesis, si bien el Trabajo 2 brindó la base de datos de viviendas precarias a nivel desagregado, este nuevo trabajo, mediante el uso de clustering, ha transformado esa información en un marco analítico de tipologías territoriales. Esto permite una comprensión más profunda de las interacciones entre ingreso y calidad de vivienda, lo cual es fundamental para tomar decisiones de política pública más informadas y efectivas.
+
+# 9. Conclusión
+
+El presente estudio ha logrado clasificar las zonas censales urbanas del Gran Santiago en cuatro tipologías distintivas, basadas en la combinación de sus niveles de vivienda precaria y mediana de ingreso per cápita. Esta aproximación ha permitido trascender la descripción univariable para ofrecer una comprensión más granular y multidimensional de la estructura socio-espacial del área metropolitana.
+
+La aplicación del método del codo validó la existencia de cuatro clusters óptimos, que reflejan patrones claros y diferenciados. El análisis de los promedios de cada grupo reveló:
+
+-   El Clúster 1 ('Ingreso Medio-Bajo - Sin Precariedad'), que es el más numeroso, representa la vasta mayoría de las zonas censales urbanas, caracterizadas por ingresos moderados y una ausencia casi total de precariedad habitacional.
+
+-   Los Clusters 2 ('Ingreso Alto - Muy Baja Precariedad') y 4 ('Ingreso Muy Alto - Sin Precariedad') agrupan a las zonas de altos y muy altos ingresos, respectivamente, confirmando una clara estratificación económica asociada a la calidad habitacional.
+
+-   El Clúster 3 ('Alta Precariedad - Ingreso Medio-Bajo'), aunque numéricamente el más pequeño (16 zonas), es el más crítico. Este grupo destaca por la presencia significativa de viviendas precarias, a pesar de que sus niveles de ingreso son comparables a los del Clúster 1. Este hallazgo es crucial, ya que apunta a focos específicos de vulnerabilidad habitacional que no se explican únicamente por los ingresos más bajos.
+
+La visualización espacial de estos clusters a nivel de zona censal ha corroborado la persistencia de patrones de segregación socio-espacial en el Gran Santiago. Los clusters de alto ingreso se concentran visiblemente en el sector oriente, mientras que el Clúster 1 de ingreso medio-bajo sin precariedad domina las comunas del centro, sur y poniente. Más allá de la segregación general, este análisis ha permitido identificar con precisión aquellos focos de precariedad (Clúster 3) que, si bien son pocos, representan desafíos específicos para la política habitacional.
+
+Complementariamente, el Índice de Shannon ha ofrecido una valiosa perspectiva sobre la variabilidad intra-comunal de los clusters. Los resultados muestran que comunas como Lo Barnechea, Las Condes y La Reina exhiben una alta heterogeneidad, albergando una mezcla diversa de tipologías de zonas, lo que desafía la percepción de su homogeneidad socioeconómica. En contraste, un amplio corredor de comunas del sur y poniente de Santiago se revela como más homogéneo, dominado por el Clúster 1. Esta información es fundamental para la planificación, ya que las comunas heterogéneas demandan políticas más segmentadas y matizadas que reconozcan las múltiples realidades en su interior, mientras que las comunas homogéneas podrían requerir intervenciones a una escala más amplia, pero siempre enfocadas en las características de su clúster predominante.
+
+En retrospectiva, este Trabajo 3 ha enriquecido sustancialmente los hallazgos del Trabajo 2. Mientras que la microsimulación inicial permitió mapear la distribución de la vivienda precaria, el análisis de clustering ha transformado esta información en conocimiento accionable al definir tipologías de zonas. Este enfoque multidimensional no solo confirma la concentración de precariedad en sectores previamente identificados, sino que también distingue entre zonas con ingresos similares, pero con calidades de vivienda radicalmente distintas. Este valor agregado es vital para la focalización de políticas públicas, permitiendo una asignación más eficiente y equitativa de recursos para el mejoramiento habitacional y la reducción de la desigualdad urbana, al identificar con mayor precisión los grupos de población y los territorios que requieren intervenciones específicas. La capacidad de identificar estos patrones espaciales y la variabilidad interna de las comunas posiciona este análisis como una herramienta robusta para la toma de decisiones en planificación territorial y políticas sociales.
+
+# 10. Desconexión a la base de datos
+
+```{r Desconexión final db, echo=FALSE}
+dbDisconnect(con)
 ```

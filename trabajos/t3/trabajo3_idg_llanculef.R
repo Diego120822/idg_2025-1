@@ -110,7 +110,7 @@ df_clusters$cluster <- as.factor(km$cluster)
 # Etiquetar los clusters de forma más descriptiva
 # ESTAS SON LAS ETIQUETAS BASADAS EN LOS PROMEDIOS QUE VIMOS EN LA TABLA
 cluster_labels_df <- tibble(
-  cluster = factor(c(1, 2, 3, 4)), # Asegúrate que coincidan con los IDs de tus clusters
+  cluster = factor(c(1, 2, 3, 4)),
   etiqueta_descriptiva = c(
     "1. Ingreso Medio-Bajo - Sin Precariedad",
     "2. Ingreso Alto - Muy Baja Precariedad",
@@ -190,7 +190,7 @@ ggplot() +
   geom_sf(data = sf_mapa, aes(fill = etiqueta_descriptiva), color = NA) + # USAR la nueva columna con etiquetas
   geom_sf(data = sf_comunas, fill = NA, color = "black", size = 0.4) +
   geom_sf_text(data = st_centroid(sf_comunas), aes(label = nom_comuna), size = 2) +
-  scale_fill_brewer(palette = "Set2", name = "Tipo de Zona Censal") + # Cambiar el título de la leyenda
+  scale_fill_brewer(palette = "Set2", name = "Tipo de Zona Censal") + 
   labs(title = "Tipología de Zonas Censales Urbanas – Gran Santiago",
        subtitle = "Clusters basados en Vivienda Precaria e Ingreso") +
   coord_sf(xlim = c(bbox["xmin"], bbox["xmax"]), ylim = c(bbox["ymin"], bbox["ymax"]), expand = FALSE) +
