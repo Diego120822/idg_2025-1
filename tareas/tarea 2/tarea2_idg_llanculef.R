@@ -24,7 +24,7 @@ personas_gs$ing_pc = personas_gs$ing_disp_hog_hd_ai / personas_gs$npersonas
 # Filtrar la base de cantidades en funcion de mi servicio
 gastos_servicio =
   gastos[
-    gastos$ccif == "07.2.4.02.01",
+    gastos$ccif == "11.1.1.01.03",
   ]
 
 # Sumar gasto total en el servicio, por hogar
