@@ -1,6 +1,7 @@
 # --- INSTALACIÓN Y LIBRERÍAS NECESARIAS ---
 # Instalar y cargar librerías requeridas
 install.packages("pROC")
+library(pROC)
 library(haven)     # Para leer archivos .dta
 library(ggplot2)   # Para visualización\mlibrary(pROC)      # Para curvas ROC y AUC
 
@@ -149,42 +150,56 @@ print(paste("R² Ajustado:", round(summary(modelo_lm)$adj.r.squared, 3)))
 print(paste("RMSE:", round(rmse, 2)))
 print(paste("MAE:", round(mae, 2)))
 
-# --- IMPUTACIÓN DEL GASTO EN CASEN 2022 ---
+# --- IMPUTACIÓN DEL GASTO EN CASEN 2022 (DESDE RDS) ---
 
-# Cargar base CASEN 2022 (ajustar ruta si es necesario)
-casen <- read_dta("data/casen/casen2022.dta")
+# Cargar base CASEN 2022 (formato RDS)
+casen <- readRDS("data/casen_rm.rds") 
 
-# Filtrado de casos válidos y cálculo de log ingreso
+# Filtrar casos válidos: personas adultas con ingreso positivo
 casen <- subset(casen, edad >= 18 & edad < 100 & ypc > 0)
+
+# Calcular logaritmo del ingreso per cápita
 casen$log_ypc <- log1p(casen$ypc)
 
-# Categorización de edad y escolaridad similar a EPF
+# Crear variables categóricas compatibles con las del modelo EPF
 casen$grupo_edad <- cut(casen$edad,
                         breaks = c(0, 29, 39, 49, 59, 69, Inf),
                         labels = c("0–29", "30–39", "40–49", "50–59", "60–69", "70+"))
+
 casen$grupo_escolaridad <- cut(casen$esc,
                                breaks = c(-Inf, 8, 12, 16, Inf),
                                labels = c("Básica o menos", "Media-baja", "Media-alta", "Alta"))
 
-# Mantener solo registros completos
+# Filtrar filas completas que tengan todas las variables necesarias
 casen_modelo <- casen[!is.na(casen$grupo_edad) &
                         !is.na(casen$grupo_escolaridad) &
                         !is.na(casen$sexo) &
                         !is.na(casen$log_ypc), ]
 
-# Predicción de probabilidad de incurrir en gasto
+# Renombrar variable para que coincida con el modelo de EPF
+casen_modelo$log_ing_pc <- casen_modelo$log_ypc
+
+# --- PARTE 1: Estimar probabilidad de incurrir en gasto con modelo LOGIT ---
 casen_modelo$prob_gastar <- predict(modelo_logit, newdata = casen_modelo, type = "response")
 
-# Simulación binaria de incurrencia en gasto
-set.seed(123)
+# Simular incurrencia en gasto (1 = gasta, 0 = no gasta)
+set.seed(123)  # Semilla para reproducibilidad
 casen_modelo$gasta <- rbinom(nrow(casen_modelo), 1, casen_modelo$prob_gastar)
 
-# Predicción del monto de gasto para quienes incurren
-gasto_pred <- rep(0, nrow(casen_modelo))
-gasto_pred[casen_modelo$gasta == 1] <- predict(modelo_lm, newdata = casen_modelo[casen_modelo$gasta == 1, ])
-casen_modelo$gasto_imputado <- ifelse(casen_modelo$gasta == 1, expm1(gasto_pred), 0)
+# --- PARTE 2: Estimar monto del gasto entre quienes sí gastarían ---
+# Predecir solo para quienes gastarían
+casen_modelo$log_gasto_pred <- NA
+casen_modelo$log_gasto_pred[casen_modelo$gasta == 1] <-
+  predict(modelo_lm, newdata = casen_modelo[casen_modelo$gasta == 1, ])
 
-# Estadísticas descriptivas del gasto imputado
+# Calcular gasto imputado deshaciendo el logaritmo
+casen_modelo$gasto_imputado <- ifelse(casen_modelo$gasta == 1,
+                                      expm1(casen_modelo$log_gasto_pred),
+                                      0)
+
+# --- ESTADÍSTICAS DESCRIPTIVAS DEL GASTO IMPUTADO ---
+
+# Resumen general
 cat("Resumen del gasto imputado en hoteles (CASEN 2022):\n")
 summary(casen_modelo$gasto_imputado)
 
@@ -194,12 +209,16 @@ hist(casen_modelo$gasto_imputado,
      main = "Distribución del Gasto Imputado en Hoteles (CASEN 2022)",
      xlab = "Gasto Imputado")
 
-# Boxplot por quintiles de ingreso
+# Clasificación por quintil de ingreso
 casen_modelo$quintil_ingreso <- cut(casen_modelo$ypc,
-                                    breaks = quantile(casen_modelo$ypc, probs = seq(0, 1, 0.2), na.rm = TRUE),
+                                    breaks = quantile(casen_modelo$ypc,
+                                                      probs = seq(0, 1, 0.2),
+                                                      na.rm = TRUE),
                                     include.lowest = TRUE,
                                     labels = c("Q1", "Q2", "Q3", "Q4", "Q5"))
 
+# Boxplot por quintil de ingreso
 boxplot(gasto_imputado ~ quintil_ingreso, data = casen_modelo,
         main = "Gasto Imputado según Quintil de Ingreso",
         col = "skyblue", ylab = "Gasto en Hoteles")
+
